@@ -18,6 +18,7 @@ config.json
 
 # Editor & OS
 .claude/
+.cursor/
 .DS_Store
 
 # Logs
