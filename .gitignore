@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+build/
+dist/
+
+# Test coverage
+coverage/
+
+# Runtime data (user-specific, generated at runtime)
+data/
+config.json
+
+# Environment & secrets
+.env*
+!.env.example
+
+# Editor & OS
+.claude/
+.DS_Store
+
+# Logs
+*.log

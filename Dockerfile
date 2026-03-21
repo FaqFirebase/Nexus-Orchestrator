@@ -1,0 +1,44 @@
+# --- Build Stage ---
+FROM node:20-slim AS builder
+
+WORKDIR /app
+
+# Install dependencies first for better caching
+COPY package*.json ./
+RUN npm install
+
+# Copy source and build the frontend
+COPY . .
+RUN npm run build
+
+# --- Production Stage ---
+FROM node:20-slim
+
+WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV CONFIG_DIR=/app/data
+ENV LOCAL_URL=http://localhost:11434
+ENV CLOUD_URL=
+ENV ROUTER_MODEL=
+ENV ROUTER_URL=
+
+# Copy built assets from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/server.ts ./
+COPY --from=builder /app/logger.ts ./
+
+# Install only production dependencies
+RUN npm install --omit=dev && \
+    npm install -g tsx
+
+# Create data directory for persistence
+RUN mkdir -p /app/data
+
+EXPOSE 3000
+
+# Start the server
+CMD ["tsx", "server.ts"]

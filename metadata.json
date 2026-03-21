@@ -1,0 +1,7 @@
+{
+  "name": "Nexus Orchestrator",
+  "description": "A self-hosted orchestration layer for local and cloud LLMs. Automatically routes prompts to the best model using an OpenAI-compatible endpoint.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
