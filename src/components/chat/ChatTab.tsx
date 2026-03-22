@@ -19,13 +19,14 @@ interface ChatTabProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleSend: () => void;
+  handleStop: () => void;
   setActiveTab: (tab: 'chat' | 'models' | 'system') => void;
 }
 
 export default function ChatTab({
   messages, connectionStatus, isLoading, routingStep,
   input, setInput, attachments, removeAttachment,
-  fileInputRef, handleFileSelect, handleSend, setActiveTab,
+  fileInputRef, handleFileSelect, handleSend, handleStop, setActiveTab,
 }: ChatTabProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -110,6 +111,7 @@ export default function ChatTab({
         fileInputRef={fileInputRef}
         handleFileSelect={handleFileSelect}
         handleSend={handleSend}
+        handleStop={handleStop}
       />
     </div>
   );

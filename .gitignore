@@ -21,5 +21,8 @@ config.json
 .cursor/
 .DS_Store
 
+# Architecture diagram
+architecture.html
+
 # Logs
 *.log

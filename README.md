@@ -155,12 +155,15 @@ docker build -t nexus-orchestrator:latest .
 - [ ] Error boundaries — React error boundaries to prevent full UI crashes
 - [ ] Conversation cleanup — Archival or TTL for old conversations
 - [ ] Request queuing — Job queue for multiple concurrent long-running streams
-- [ ] Stop generation — Cancel button in the chat input area to abort in-flight requests
+- ✅ Stop generation — Cancel button aborts in-flight SSE stream, resets loading state (v1.0.1)
 - [ ] FAST category — Built-in category for quick, lightweight responses using small/fast models (gemma3:4b, gemini-3.1-flash-lite, gpt-4.1-mini)
 
 ---
 
 ## Changelog
+
+### v1.0.1
+- **Stop generation** — Red stop button replaces the send button while a response is generating. Aborts the the SSE stream cleanly, keeps any partial response in chat, resets loading state.
 
 ### v1.0.0 — Initial Release
 - Intelligent intent routing — classifies prompts into CODING, REASONING, CREATIVE, VISION, DOCUMENT, GENERAL and dispatches to the right model

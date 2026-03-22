@@ -115,6 +115,7 @@ export default function App() {
                 fileInputRef={chat.fileInputRef}
                 handleFileSelect={chat.handleFileSelect}
                 handleSend={chat.handleSend}
+                handleStop={chat.handleStop}
                 setActiveTab={setActiveTab}
               />
             ) : activeTab === 'models' ? (

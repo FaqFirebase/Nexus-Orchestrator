@@ -1,5 +1,5 @@
 import React from 'react';
-import { Send, Paperclip, X, FileText, Activity, Network, Shield } from 'lucide-react';
+import { Send, Paperclip, X, FileText, Activity, Network, Shield, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { Attachment } from '../../types';
 
@@ -12,11 +12,12 @@ interface ChatInputProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleSend: () => void;
+  handleStop: () => void;
 }
 
 export default function ChatInput({
   input, setInput, attachments, removeAttachment,
-  isLoading, fileInputRef, handleFileSelect, handleSend,
+  isLoading, fileInputRef, handleFileSelect, handleSend, handleStop,
 }: ChatInputProps) {
   return (
     <div className="absolute bottom-0 left-0 right-0 pt-12 pb-6 bg-gradient-to-t from-[#0A0A0A] via-[#0A0A0A] to-transparent">
@@ -81,13 +82,22 @@ export default function ChatInput({
               className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-3 px-2 resize-none max-h-48 min-h-[44px] font-mono placeholder:text-zinc-700"
               rows={1}
             />
-            <button
-              onClick={handleSend}
-              disabled={isLoading || (!input.trim() && attachments.length === 0)}
-              className="p-3 bg-emerald-500 text-black rounded-xl hover:bg-emerald-400 disabled:opacity-30 disabled:hover:bg-emerald-500 transition-all shadow-[0_0_20px_rgba(16,185,129,0.2)]"
-            >
-              <Send className="w-4 h-4" />
-            </button>
+            {isLoading ? (
+              <button
+                onClick={handleStop}
+                className="p-3 bg-red-500 text-white rounded-xl hover:bg-red-400 transition-all shadow-[0_0_20px_rgba(239,68,68,0.3)]"
+              >
+                <Square className="w-4 h-4 fill-white" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() && attachments.length === 0}
+                className="p-3 bg-emerald-500 text-black rounded-xl hover:bg-emerald-400 disabled:opacity-30 disabled:hover:bg-emerald-500 transition-all shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

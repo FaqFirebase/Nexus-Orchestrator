@@ -26,6 +26,11 @@ export function useChat(deps: UseChatDeps) {
   const [isLoading, setIsLoading] = useState(false);
   const [routingStep, setRoutingStep] = useState<'idle' | 'analyzing' | 'routing' | 'generating'>('idle');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleStop = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -151,6 +156,8 @@ export function useChat(deps: UseChatDeps) {
     setAttachments([]);
     setIsLoading(true);
     setRoutingStep('analyzing');
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
 
     try {
       const imageAttachments = (userMsg.attachments || []).filter(a => a.type.startsWith('image/'));
@@ -205,6 +212,7 @@ export function useChat(deps: UseChatDeps) {
       const response = await fetch(`${window.location.origin}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal,
         body: JSON.stringify({
           messages: [...messages, { ...userMsg, content: fullPrompt }],
           decision
@@ -278,15 +286,19 @@ export function useChat(deps: UseChatDeps) {
       });
 
     } catch (error: any) {
-      const isRouterError = error.message.includes('Router');
-      setMessages(prev => [...prev, {
-        id: 'error-' + Date.now(),
-        role: 'assistant',
-        content: isRouterError
-          ? `[Router Error]: ${error.message}`
-          : `[Nexus Error]: ${error.message}. Please verify your local provider is active.`,
-        timestamp: new Date()
-      }]);
+      if (error.name === 'AbortError') {
+        // User stopped generation — no error message needed
+      } else {
+        const isRouterError = error.message.includes('Router');
+        setMessages(prev => [...prev, {
+          id: 'error-' + Date.now(),
+          role: 'assistant',
+          content: isRouterError
+            ? `[Router Error]: ${error.message}`
+            : `[Nexus Error]: ${error.message}. Please verify your local provider is active.`,
+          timestamp: new Date()
+        }]);
+      }
     } finally {
       setIsLoading(false);
       setRoutingStep('idle');
@@ -304,5 +316,6 @@ export function useChat(deps: UseChatDeps) {
     handleFileSelect,
     removeAttachment,
     handleSend,
+    handleStop,
   };
 }
