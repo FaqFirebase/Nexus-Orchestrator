@@ -160,10 +160,14 @@ docker build -t nexus-orchestrator:latest .
 - [ ] Ollama backend abort — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
 - [ ] Chat input UX — Improve textarea for large inputs: expand height, add scrollbar, show visible line count or character info
 - [ ] FAST category — Built-in category for quick, lightweight responses using small/fast models (gemma3:4b, gemini-3.1-flash-lite, gpt-4.1-mini)
+- ✅ Category Mappings cloud filter — Cloud provider warning when unconfigured, X button repositioned out of the dropdown's way, hover tooltip added (v1.0.2)
 
 ---
 
 ## Changelog
+
+### v1.0.2
+- **Category Mappings UX** — When a category provider is set to Cloud, the local model picker is replaced with a "Cloud not configured" warning (if no Cloud API URL is set) or a "Cloud Provider Active" hint (if configured). X button moved outside the card corner to avoid overlapping the provider dropdown; hover tooltip now explains what the button does.
 
 ### v1.0.1
 - **Stop generation** — Red stop button replaces the send button while a response is generating. Aborts the the SSE stream cleanly, keeps any partial response in chat, resets loading state.

@@ -1,4 +1,4 @@
-import { BrainCircuit, X, Info, Zap } from 'lucide-react';
+import { BrainCircuit, X, Info, Zap, CloudOff } from 'lucide-react';
 import type { NexusConfig, ModelCategory } from '../../types';
 import { getCategoryConfig, CATEGORY_REASONING } from '../../constants';
 
@@ -42,12 +42,15 @@ export default function CategoryMappings({
       <div className="grid sm:grid-cols-2 gap-6">
         {Object.entries(config.categories).map(([category, catConfig]) => (
           <div key={category} className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4 group relative">
-            <button
-              onClick={() => removeCategory(category)}
-              className="absolute top-4 right-4 p-2 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+              <button
+                onClick={() => removeCategory(category)}
+                title={`Remove "${category}" category — this cannot be undone`}
+                className="p-1 bg-zinc-800 border border-zinc-700 rounded-full text-zinc-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-all"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={`w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center ${getCategoryConfig(category).color}`}>
@@ -113,43 +116,61 @@ export default function CategoryMappings({
                 )}
               </div>
 
-              {/* Discovered Models Picker */}
-              {localModels.length > 0 && (
-                <div className="p-3 rounded-xl bg-zinc-800/30 border border-zinc-800/50 space-y-2">
-                  <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Available Local Models</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {localModels.map(m => {
-                      const isSelected = catConfig.models.includes(m.name);
-                      return (
-                        <button
-                          key={m.name}
-                          onClick={() => {
-                            const newConfig = { ...config };
-                            const currentModels = newConfig.categories[category as ModelCategory].models;
-                            if (isSelected) {
-                              newConfig.categories[category as ModelCategory].models = currentModels.filter(mod => mod !== m.name);
-                            } else {
-                              newConfig.categories[category as ModelCategory].models = [...currentModels, m.name];
-                            }
-                            saveConfig(newConfig);
-                          }}
-                          className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-[9px] font-mono border transition-all ${
-                            isSelected
-                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                              : 'bg-black/20 border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
-                          }`}
-                        >
-                          <span className="truncate mr-1">{m.name}</span>
-                          {isSelected ? (
-                            <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                          ) : (
-                            <div className="w-2 h-2 rounded-full border border-zinc-700" />
-                          )}
-                        </button>
-                      );
-                    })}
+              {/* Model Picker — local vs cloud */}
+              {catConfig.provider === 'cloud' ? (
+                !config.cloudUrl ? (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-yellow-500/5 border border-yellow-500/20">
+                    <CloudOff className="w-3.5 h-3.5 text-yellow-500/70 shrink-0" />
+                    <p className="text-[9px] font-mono text-yellow-500/70 leading-relaxed">
+                      Cloud provider not configured. Set a Cloud API URL in the <span className="font-bold">Settings</span> tab before assigning cloud models.
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-1">
+                    <p className="text-[8px] font-bold text-blue-400/70 uppercase tracking-widest">Cloud Provider Active</p>
+                    <p className="text-[9px] font-mono text-zinc-500 leading-relaxed">
+                      Enter model names manually below (e.g. <span className="text-blue-400/80">gpt-4o</span>, <span className="text-blue-400/80">claude-3-5-sonnet</span>).
+                    </p>
+                  </div>
+                )
+              ) : (
+                localModels.length > 0 && (
+                  <div className="p-3 rounded-xl bg-zinc-800/30 border border-zinc-800/50 space-y-2">
+                    <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Available Local Models</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {localModels.map(m => {
+                        const isSelected = catConfig.models.includes(m.name);
+                        return (
+                          <button
+                            key={m.name}
+                            onClick={() => {
+                              const newConfig = { ...config };
+                              const currentModels = newConfig.categories[category as ModelCategory].models;
+                              if (isSelected) {
+                                newConfig.categories[category as ModelCategory].models = currentModels.filter(mod => mod !== m.name);
+                              } else {
+                                newConfig.categories[category as ModelCategory].models = [...currentModels, m.name];
+                              }
+                              saveConfig(newConfig);
+                            }}
+                            className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-[9px] font-mono border transition-all ${
+                              isSelected
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                : 'bg-black/20 border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                            }`}
+                          >
+                            <span className="truncate mr-1">{m.name}</span>
+                            {isSelected ? (
+                              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                            ) : (
+                              <div className="w-2 h-2 rounded-full border border-zinc-700" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )
               )}
 
               {/* Manual Entry */}
@@ -208,7 +229,7 @@ export default function CategoryMappings({
           <div className="grid sm:grid-cols-3 gap-6">
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">1. Intent Analysis</p>
-              <p className="text-[10px] text-zinc-500 leading-relaxed">Gemini analyzes the user input to determine the primary intent and required capabilities.</p>
+              <p className="text-[10px] text-zinc-500 leading-relaxed">The router model analyzes the user input to determine the primary intent and required capabilities.</p>
             </div>
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">2. Provider Selection</p>
