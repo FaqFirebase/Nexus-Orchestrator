@@ -167,7 +167,9 @@ docker build -t nexus-orchestrator:latest .
 ## Changelog
 
 ### v1.0.2
-- **Category Mappings UX** — When a category provider is set to Cloud, the local model picker is replaced with a "Cloud not configured" warning (if no Cloud API URL is set) or a "Cloud Provider Active" hint (if configured). X button moved outside the card corner to avoid overlapping the provider dropdown; hover tooltip now explains what the button does.
+- **Category Mappings UX** — When a category provider is set to Cloud, the local model picker is replaced with a "Cloud not configured" warning (if no Cloud API URL is set) or a "Cloud Provider Active" hint (if configured). X button moved outside the card corner to avoid overlapping the provider dropdown; removing a category now shows a confirmation dialog.
+- **Scrollbar fix** — Models and System tabs now scroll full-width; scrollbar sits at the window edge instead of overlapping content. Scrolling works from anywhere on the page.
+- **Sidebar navigation** — Clicking a conversation or "New Orchestration" in the sidebar now automatically switches back to the Chat tab.
 
 ### v1.0.1
 - **Stop generation** — Red stop button replaces the send button while a response is generating. Aborts the the SSE stream cleanly, keeps any partial response in chat, resets loading state.

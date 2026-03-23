@@ -11,6 +11,7 @@ interface SidebarProps {
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string, e: React.MouseEvent) => void;
   onRenameConversation: (id: string, newTitle: string) => void;
+  onNavigateToChat?: () => void;
 }
 
 export default function Sidebar({
@@ -20,6 +21,7 @@ export default function Sidebar({
   onSelectConversation,
   onDeleteConversation,
   onRenameConversation,
+  onNavigateToChat,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -59,7 +61,7 @@ export default function Sidebar({
     >
       <div className="p-4 border-b border-zinc-800">
         <button
-          onClick={onNewConversation}
+          onClick={() => { onNewConversation(); onNavigateToChat?.(); }}
           className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[10px] font-bold uppercase tracking-widest text-white transition-all group"
         >
           <Plus className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
@@ -77,7 +79,7 @@ export default function Sidebar({
           conversations.map((conv) => (
             <div
               key={conv.id}
-              onClick={() => onSelectConversation(conv.id)}
+              onClick={() => { onSelectConversation(conv.id); onNavigateToChat?.(); }}
               onDoubleClick={(e) => startRename(conv, e)}
               className={`group relative flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border ${
                 activeConversationId === conv.id

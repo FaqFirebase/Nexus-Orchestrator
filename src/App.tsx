@@ -96,13 +96,14 @@ export default function App() {
               onSelectConversation={convos.selectConversation}
               onDeleteConversation={convos.deleteConversation}
               onRenameConversation={convos.renameConversation}
+              onNavigateToChat={() => setActiveTab('chat')}
             />
           )}
         </AnimatePresence>
 
         <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
-          <div className="max-w-5xl mx-auto w-full px-6 py-8 h-full flex flex-col">
-            {activeTab === 'chat' ? (
+          {activeTab === 'chat' ? (
+            <div className="max-w-5xl mx-auto w-full px-6 py-8 h-full flex flex-col">
               <ChatTab
                 messages={convos.messages}
                 connectionStatus={connection.connectionStatus}
@@ -118,35 +119,41 @@ export default function App() {
                 handleStop={chat.handleStop}
                 setActiveTab={setActiveTab}
               />
-            ) : activeTab === 'models' ? (
-              <ModelsTab
-                config={configHook.config}
-                setConfig={configHook.setConfig}
-                showApiKey={configHook.showApiKey}
-                setShowApiKey={configHook.setShowApiKey}
-                saveStatus={configHook.saveStatus}
-                saveError={configHook.saveError}
-                saveConfig={configHook.saveConfig}
-                authRequired={auth.authRequired}
-                isAuthorized={auth.isAuthorized}
-                logout={auth.logout}
-                localModels={connection.localModels}
-                connectionStatus={connection.connectionStatus}
-                isLoading={chat.isLoading}
-                checkConnection={connection.checkConnection}
-                newCategoryName={configHook.newCategoryName}
-                setNewCategoryName={configHook.setNewCategoryName}
-                addCategory={configHook.addCategory}
-                removeCategory={configHook.removeCategory}
-              />
-            ) : (
-              <SystemTab
-                config={configHook.config}
-                conversations={convos.conversations}
-                fetchConversations={convos.fetchConversations}
-              />
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              <div className="max-w-5xl mx-auto w-full px-6 py-8">
+                {activeTab === 'models' ? (
+                  <ModelsTab
+                    config={configHook.config}
+                    setConfig={configHook.setConfig}
+                    showApiKey={configHook.showApiKey}
+                    setShowApiKey={configHook.setShowApiKey}
+                    saveStatus={configHook.saveStatus}
+                    saveError={configHook.saveError}
+                    saveConfig={configHook.saveConfig}
+                    authRequired={auth.authRequired}
+                    isAuthorized={auth.isAuthorized}
+                    logout={auth.logout}
+                    localModels={connection.localModels}
+                    connectionStatus={connection.connectionStatus}
+                    isLoading={chat.isLoading}
+                    checkConnection={connection.checkConnection}
+                    newCategoryName={configHook.newCategoryName}
+                    setNewCategoryName={configHook.setNewCategoryName}
+                    addCategory={configHook.addCategory}
+                    removeCategory={configHook.removeCategory}
+                  />
+                ) : (
+                  <SystemTab
+                    config={configHook.config}
+                    conversations={convos.conversations}
+                    fetchConversations={convos.fetchConversations}
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

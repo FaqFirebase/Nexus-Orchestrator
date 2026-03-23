@@ -44,8 +44,11 @@ export default function CategoryMappings({
           <div key={category} className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4 group relative">
             <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-all z-10">
               <button
-                onClick={() => removeCategory(category)}
-                title={`Remove "${category}" category — this cannot be undone`}
+                onClick={() => {
+                  if (window.confirm(`Remove "${category}" category? This cannot be undone.`)) {
+                    removeCategory(category);
+                  }
+                }}
                 className="p-1 bg-zinc-800 border border-zinc-700 rounded-full text-zinc-500 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-all"
               >
                 <X className="w-3.5 h-3.5" />

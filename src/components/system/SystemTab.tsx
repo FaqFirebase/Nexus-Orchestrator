@@ -20,7 +20,7 @@ export default function SystemTab({ config, conversations, fetchConversations }:
   };
 
   return (
-    <div className="flex-1 overflow-y-auto pb-32 scroll-smooth">
+    <div className="pb-32 scroll-smooth">
       <div className="max-w-4xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

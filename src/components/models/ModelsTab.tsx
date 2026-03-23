@@ -27,7 +27,7 @@ interface ModelsTabProps {
 
 export default function ModelsTab(props: ModelsTabProps) {
   return (
-    <div className="flex-1 overflow-y-auto pb-20 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="pb-20 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="space-y-2">
         <h2 className="text-3xl font-bold tracking-tighter text-white">Model Configuration</h2>
         <p className="text-zinc-400 text-sm">Manage your local and cloud model endpoints and routing logic.</p>
