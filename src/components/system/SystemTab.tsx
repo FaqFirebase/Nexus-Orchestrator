@@ -29,7 +29,7 @@ export default function SystemTab({ config, conversations, fetchConversations }:
             </div>
             <div>
               <h2 className="text-xl font-bold text-white uppercase tracking-tighter">System Data</h2>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase">Raw JSON Inspection & Export</p>
+              <p className="text-[10px] font-mono text-zinc-500 uppercase">Database Inspection & Export</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -48,7 +48,7 @@ export default function SystemTab({ config, conversations, fetchConversations }:
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Settings className="w-4 h-4 text-blue-400" />
-                <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">config.json</h3>
+                <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Configuration</h3>
               </div>
               <button
                 onClick={() => downloadJson(config, 'config.json')}
@@ -75,7 +75,7 @@ export default function SystemTab({ config, conversations, fetchConversations }:
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">conversations.json</h3>
+                <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Conversations</h3>
               </div>
               <button
                 onClick={() => downloadJson(conversations, 'conversations.json')}
