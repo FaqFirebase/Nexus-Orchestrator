@@ -156,6 +156,8 @@ docker build -t nexus-orchestrator:latest .
 - [ ] Conversation cleanup — Archival or TTL for old conversations
 - [ ] Request queuing — Job queue for multiple concurrent long-running streams
 - ✅ Stop generation — Cancel button aborts in-flight SSE stream, resets loading state (v1.0.1)
+  > **Known limitation:** The UI stops immediately, but Ollama will continue generating in the background until the current response completes. This is a Docker networking constraint — TCP disconnect does not propagate to the Ollama llama runner. Cloud providers (OpenAI, Gemini, etc.) are unaffected.Looking for a fix
+- [ ] Ollama backend abort — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
 - [ ] FAST category — Built-in category for quick, lightweight responses using small/fast models (gemma3:4b, gemini-3.1-flash-lite, gpt-4.1-mini)
 
 ---

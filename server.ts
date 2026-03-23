@@ -83,6 +83,9 @@ let LOCAL_KEY = DEFAULT_CONFIG.localKey;
 let CLOUD_URL = DEFAULT_CONFIG.cloudUrl;
 let CLOUD_KEY = DEFAULT_CONFIG.cloudKey;
 
+// Tracks which base URLs are confirmed Ollama instances (detected via /api/tags during health check)
+const ollamaUrls = new Set<string>();
+
 // SSRF protection: validate URLs before storing or fetching
 const BLOCKED_HOSTS = [
   '169.254.169.254',       // AWS/GCP/Azure metadata
@@ -516,6 +519,7 @@ async function startServer() {
       });
 
       // If that fails or 404s/405s, try Ollama's native tags endpoint
+      let isOllama = false;
       if (!response || response.status === 404 || response.status === 405) {
         response = await fetch(getApiUrl(LOCAL_URL, 'tags'), {
           signal: controller.signal,
@@ -526,12 +530,21 @@ async function startServer() {
           }
           return null;
         });
+        if (response && response.ok) isOllama = true;
       }
 
       clearTimeout(timeoutId);
-      
+
+      // Cache Ollama detection so chat endpoint can use native /api/chat
+      const baseKey = LOCAL_URL.replace(/\/$/, "");
+      if (isOllama) {
+        ollamaUrls.add(baseKey);
+      } else {
+        ollamaUrls.delete(baseKey);
+      }
+
       if (response && response.ok) {
-        res.json({ status: "connected", local: LOCAL_URL });
+        res.json({ status: "connected", local: LOCAL_URL, isOllama });
       } else if (response) {
         const text = await response.text().catch(() => "No body");
         log.warn({ status: response.status, statusText: response.statusText, body: text }, 'Local provider health check failed');
@@ -795,10 +808,16 @@ async function startServer() {
       const getEndpoints = (base: string) => {
         const endpoints = [];
         const cleanBase = base.replace(/\/$/, "");
-        
-        // If user provided a full endpoint, try it first
+
+        // If user provided a full endpoint, use it as-is
         if (cleanBase.endsWith('/chat/completions') || cleanBase.endsWith('/completions') || cleanBase.endsWith('/generate') || cleanBase.endsWith('/api/chat')) {
           endpoints.push(cleanBase);
+          return endpoints;
+        }
+
+        // Confirmed Ollama instance — use native /api/chat exclusively for proper abort support
+        if (ollamaUrls.has(cleanBase)) {
+          endpoints.push(`${cleanBase}/api/chat`);
           return endpoints;
         }
 
@@ -813,20 +832,13 @@ async function startServer() {
           endpoints.push(`${cleanBase}/chat/completions`);
           endpoints.push(`${cleanBase}/chat/completions/`);
         } else {
-          // Try standard OpenAI path
           endpoints.push(`${cleanBase}/v1/chat/completions`);
           endpoints.push(`${cleanBase}/v1/chat/completions/`);
-          
-          // Try Open WebUI / LiteLLM paths
           if (!cleanBase.endsWith('/api')) {
             endpoints.push(`${cleanBase}/api/v1/chat/completions`);
             endpoints.push(`${cleanBase}/api/chat/completions`);
           }
-          
-          // Try Ollama native path (some proxies use this)
           endpoints.push(`${cleanBase}/api/chat`);
-          
-          // Try direct path as fallback
           endpoints.push(`${cleanBase}/chat/completions`);
           endpoints.push(`${cleanBase}/chat/completions/`);
         }
@@ -985,7 +997,12 @@ async function startServer() {
       if (response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        
+
+        // Propagate client disconnect to the upstream provider (stops Ollama generation)
+        req.on('close', () => {
+          reader.cancel().catch(() => {});
+        });
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
