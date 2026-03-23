@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { Send, Paperclip, X, FileText, Activity, Network, Shield, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { Attachment } from '../../types';
@@ -19,6 +19,17 @@ export default function ChatInput({
   input, setInput, attachments, removeAttachment,
   isLoading, fileInputRef, handleFileSelect, handleSend, handleStop,
 }: ChatInputProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustHeight = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 192)}px`;
+  }, []);
+
+  useEffect(() => { adjustHeight(); }, [input, adjustHeight]);
+
   return (
     <div className="absolute bottom-0 left-0 right-0 pt-12 pb-6 bg-gradient-to-t from-[#0A0A0A] via-[#0A0A0A] to-transparent">
       <div className="relative group">
@@ -70,6 +81,7 @@ export default function ChatInput({
               <Paperclip className="w-4 h-4" />
             </button>
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -79,7 +91,7 @@ export default function ChatInput({
                 }
               }}
               placeholder="Enter prompt for orchestration..."
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-3 px-2 resize-none max-h-48 min-h-[44px] font-mono placeholder:text-zinc-700"
+              className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-3 px-2 resize-none max-h-48 min-h-[44px] font-mono placeholder:text-zinc-700 transition-[height] duration-150 ease-out overflow-y-auto"
               rows={1}
             />
             {isLoading ? (
@@ -99,6 +111,14 @@ export default function ChatInput({
               </button>
             )}
           </div>
+
+          {input.length > 0 && (
+            <div className="px-4 pb-1.5 text-right">
+              <span className="text-[10px] font-mono text-zinc-600">
+                {input.length} chars{input.split('\n').length > 1 ? ` · ${input.split('\n').length} lines` : ''}
+              </span>
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-3 flex items-center justify-center gap-6 text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-600">

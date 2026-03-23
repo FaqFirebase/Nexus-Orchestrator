@@ -169,6 +169,7 @@ export function useChat(deps: UseChatDeps) {
         decision = {
           category: 'VISION',
           model: visionCfg?.models?.[0] || '',
+          fallbackModels: visionCfg?.models?.slice(1) || [],
           provider: visionCfg?.provider || 'local',
           reasoning: 'Image attachment detected',
           confidence: 1.0,
@@ -178,12 +179,15 @@ export function useChat(deps: UseChatDeps) {
         decision = {
           category: 'DOCUMENT',
           model: docCfg?.models?.[0] || '',
+          fallbackModels: docCfg?.models?.slice(1) || [],
           provider: docCfg?.provider || 'local',
           reasoning: 'Document attachment detected',
           confidence: 1.0,
         };
       } else {
         decision = await routeIntent(input || "Analyze attached files", (userMsg.attachments?.length || 0) > 0);
+        const categoryModels = config.categories[decision.category]?.models || [];
+        decision.fallbackModels = categoryModels.filter(m => m !== decision.model);
       }
       setRoutingStep('routing');
 

@@ -679,119 +679,129 @@ async function startServer() {
       // Vision/large models need more time to load; use a longer per-attempt timeout
       const attemptTimeoutMs = isVision ? 60000 : 15000;
 
-      const candidateUrls = getEndpoints(baseUrl);
+      // Build ordered list of models to try: primary model first, then fallbacks
+      const modelsToTry = [decision.model, ...(decision.fallbackModels || [])].filter(Boolean);
 
       let response: any = null;
       let lastError: any = null;
-      const loadingRetries = new Map<string, number>();
 
-      let urlIndex = 0;
-      while (urlIndex < candidateUrls.length) {
-        const url = candidateUrls[urlIndex];
-        log.debug({ url }, 'Attempting route');
-        try {
-          const attemptController = new AbortController();
-          const attemptTimeout = setTimeout(() => attemptController.abort(), attemptTimeoutMs);
-          
-          const attempt = await fetch(url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              model: decision.model,
-              messages: messages.map((m: any) => {
-                let content = m.content || "";
-                const msg: any = { role: m.role, content };
-                
-                // Handle image attachments for vision models
-                if (m.attachments && m.attachments.length > 0) {
-                  const images = m.attachments
-                    .filter((a: any) => a.type.startsWith('image/'))
-                    .map((a: any) => {
-                      // Extract base64 part from data URL
-                      if (a.content && a.content.includes(',')) {
-                        return a.content.split(',')[1];
+      for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
+        const currentModel = modelsToTry[modelIdx];
+        const candidateUrls = getEndpoints(baseUrl);
+        const loadingRetries = new Map<string, number>();
+
+        if (modelIdx > 0) {
+          log.info({ failedModel: modelsToTry[modelIdx - 1], nextModel: currentModel, attempt: modelIdx + 1, total: modelsToTry.length }, 'Falling back to next model in pool');
+        }
+
+        let urlIndex = 0;
+        while (urlIndex < candidateUrls.length) {
+          const url = candidateUrls[urlIndex];
+          log.debug({ url, model: currentModel }, 'Attempting route');
+          try {
+            const attemptController = new AbortController();
+            const attemptTimeout = setTimeout(() => attemptController.abort(), attemptTimeoutMs);
+
+            const attempt = await fetch(url, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                model: currentModel,
+                messages: messages.map((m: any) => {
+                  let content = m.content || "";
+                  const msg: any = { role: m.role, content };
+
+                  // Handle image attachments for vision models
+                  if (m.attachments && m.attachments.length > 0) {
+                    const images = m.attachments
+                      .filter((a: any) => a.type.startsWith('image/'))
+                      .map((a: any) => {
+                        // Extract base64 part from data URL
+                        if (a.content && a.content.includes(',')) {
+                          return a.content.split(',')[1];
+                        }
+                        return a.content;
+                      });
+
+                    if (images.length > 0) {
+                      const isOllamaNative = url.endsWith('/api/chat');
+                      if (isOllamaNative) {
+                        // Ollama native /api/chat: string content + images array
+                        msg.images = images;
+                        msg.content = m.content || "Analyze this image";
+                      } else if (m.role === 'user') {
+                        // OpenAI-compat /v1/chat/completions: content as array of parts
+                        msg.content = [
+                          { type: 'text', text: m.content || "Analyze this image" },
+                          ...images.map((img: string) => ({
+                            type: 'image_url',
+                            image_url: { url: `data:image/jpeg;base64,${img}` }
+                          }))
+                        ];
                       }
-                      return a.content;
-                    });
-
-                  if (images.length > 0) {
-                    const isOllamaNative = url.endsWith('/api/chat');
-                    if (isOllamaNative) {
-                      // Ollama native /api/chat: string content + images array
-                      msg.images = images;
-                      msg.content = m.content || "Analyze this image";
-                    } else if (m.role === 'user') {
-                      // OpenAI-compat /v1/chat/completions: content as array of parts
-                      msg.content = [
-                        { type: 'text', text: m.content || "Analyze this image" },
-                        ...images.map((img: string) => ({
-                          type: 'image_url',
-                          image_url: { url: `data:image/jpeg;base64,${img}` }
-                        }))
-                      ];
                     }
                   }
-                }
-                return msg;
+                  return msg;
+                }),
+                stream: true,
+                stream_options: { include_usage: true }
               }),
-              stream: true,
-              stream_options: { include_usage: true }
-            }),
-            signal: attemptController.signal,
-          });
+              signal: attemptController.signal,
+            });
 
-          clearTimeout(attemptTimeout);
+            clearTimeout(attemptTimeout);
 
-          if (attempt.ok) {
-            log.info({ url }, 'Successfully routed');
-            response = attempt;
-            fullUrl = url; // Update for logging
+            if (attempt.ok) {
+              log.info({ url, model: currentModel }, 'Successfully routed');
+              response = attempt;
+              fullUrl = url;
+              break;
+            }
+
+            // Read error body for logging (this consumes the stream — do NOT use attempt.body after this)
+            const errText = await attempt.text().catch(() => "");
+            log.warn({ url, model: currentModel, status: attempt.status, body: errText.slice(0, 100) }, 'Route attempt failed');
+
+            // Always track the most informative error (prefer non-404/405/abort errors)
+            const isLastErrorWeak = !lastError || lastError.status === 404 || lastError.status === 405 || !lastError.status;
+            if (isLastErrorWeak) {
+              lastError = { status: attempt.status, text: errText };
+            }
+
+            if (attempt.status === 405 || attempt.status === 404) {
+              urlIndex++;
+              continue;
+            }
+
+            // If model is still loading, wait and retry the same URL (up to 3 times)
+            if (attempt.status === 500 && (errText.includes("loading model") || errText.includes("model loading"))) {
+              const retries = (loadingRetries.get(url) || 0) + 1;
+              loadingRetries.set(url, retries);
+              if (retries <= 3) {
+                const waitMs = retries * 5000; // 5s, 10s, 15s
+                log.info({ url, retry: retries, waitMs }, 'Model loading — waiting before retry');
+                await new Promise(resolve => setTimeout(resolve, waitMs));
+                continue; // retry same URL — don't increment urlIndex
+              }
+            }
+
+            // For other errors (401, 500, etc.), stop trying this model — move to next fallback
             break;
-          }
-
-          // Read error body for logging (this consumes the stream — do NOT use attempt.body after this)
-          const errText = await attempt.text().catch(() => "");
-          log.warn({ url, status: attempt.status, body: errText.slice(0, 100) }, 'Route attempt failed');
-
-          // Always track the most informative error (prefer non-404/405/abort errors)
-          const isLastErrorWeak = !lastError || lastError.status === 404 || lastError.status === 405 || !lastError.status;
-          if (isLastErrorWeak) {
-            lastError = { status: attempt.status, text: errText };
-          }
-
-          if (attempt.status === 405 || attempt.status === 404) {
+          } catch (err: any) {
+            if (err.name === 'AbortError') {
+              log.warn({ url, model: currentModel }, 'Route timed out or was aborted');
+            } else {
+              log.error({ url, model: currentModel, err }, 'Fetch failed');
+            }
+            if (!lastError || !lastError.status || err.name !== 'AbortError') {
+              lastError = err;
+            }
             urlIndex++;
             continue;
           }
-
-          // If model is still loading, wait and retry the same URL (up to 3 times)
-          if (attempt.status === 500 && (errText.includes("loading model") || errText.includes("model loading"))) {
-            const retries = (loadingRetries.get(url) || 0) + 1;
-            loadingRetries.set(url, retries);
-            if (retries <= 3) {
-              const waitMs = retries * 5000; // 5s, 10s, 15s
-              log.info({ url, retry: retries, waitMs }, 'Model loading — waiting before retry');
-              await new Promise(resolve => setTimeout(resolve, waitMs));
-              continue; // retry same URL — don't increment urlIndex
-            }
-          }
-
-          // For other errors (401, 500, etc.), stop — body already consumed, can't stream
-          break;
-        } catch (err: any) {
-          if (err.name === 'AbortError') {
-            log.warn({ url }, 'Route timed out or was aborted');
-          } else {
-            log.error({ url, err }, 'Fetch failed');
-          }
-          // Only overwrite lastError if current error is more informative
-          // AbortErrors are low-priority — don't let them overwrite a real status error
-          if (!lastError || !lastError.status || err.name !== 'AbortError') {
-            lastError = err;
-          }
-          urlIndex++;
-          continue;
         }
+
+        if (response) break; // Success — stop trying more models
       }
 
       clearTimeout(timeoutId);
@@ -816,7 +826,8 @@ async function startServer() {
             ? " \n\n💡 TIP: Vision/large models can take time to load. Wait a moment and try again — Ollama may still be loading the model into memory."
             : " \n\n💡 TIP: Request timed out. Please verify your local provider is active and the model is loaded.";
         }
-        throw new Error(`Failed to connect to any provider endpoint. Last error (${status || 'Fetch Failed'}): ${lastError?.text || lastError?.message || 'Unknown error'}${tip}`);
+        const modelsTriedStr = modelsToTry.length > 1 ? ` Tried models: ${modelsToTry.join(', ')}.` : '';
+        throw new Error(`Failed to connect to any provider endpoint.${modelsTriedStr} Last error (${status || 'Fetch Failed'}): ${lastError?.text || lastError?.message || 'Unknown error'}${tip}`);
       }
 
       res.setHeader("Content-Type", "text/event-stream");

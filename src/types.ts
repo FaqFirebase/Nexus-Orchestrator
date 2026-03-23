@@ -3,6 +3,7 @@ export type ModelCategory = string;
 export interface RoutingDecision {
   category: ModelCategory;
   model: string;
+  fallbackModels?: string[];
   provider: 'local' | 'cloud';
   reasoning: string;
   confidence: number;
