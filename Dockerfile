@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM node:20-slim AS builder
+FROM node:20 AS builder
 
 WORKDIR /app
 
@@ -30,13 +30,15 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/server.ts ./
 COPY --from=builder /app/logger.ts ./
+COPY --from=builder /app/crypto.ts ./
+COPY --from=builder /app/db.ts ./
 
-# Install only production dependencies
-RUN npm install --omit=dev && \
-    npm install -g tsx
+# Install only production dependencies (includes better-sqlite3 native addon)
+COPY --from=builder /app/node_modules ./node_modules
 
 # Create data directory for persistence
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && \
+    npm install -g tsx
 
 EXPOSE 3000
 

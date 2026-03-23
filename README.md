@@ -147,7 +147,7 @@ docker build -t nexus-orchestrator:latest .
 - [ ] Input validation — Zod schemas for all API endpoints
 - [ ] Tests — Vitest for backend endpoint and routing logic testing
 - [ ] Rate limiting — Prevent unlimited authenticated requests
-- [ ] SQLite migration — Replace JSON file storage to prevent corruption on concurrent writes
+- ✅ SQLite migration — Replaced JSON file storage with SQLite + WAL mode (v1.0.3)
 - [ ] Model fallback — Auto-fallback to next model in category pool when selected model is unavailable
 - [ ] Conversation pagination — API pagination + lazy-loading UI instead of loading all conversations at once
 - [ ] Router result caching — Cache recent routing decisions for identical prompts
@@ -165,6 +165,10 @@ docker build -t nexus-orchestrator:latest .
 ---
 
 ## Changelog
+
+### v1.0.3
+- **SQLite migration** — Replaced JSON file storage with SQLite (`better-sqlite3`). Conversations and config are now stored in `data/nexus.db` with WAL mode. Eliminates read-modify-write race conditions, supports atomic transactions, and enables future pagination. Existing JSON files are auto-migrated on first startup and renamed to `.migrated`.
+- **PORT env var** — Server now reads `process.env.PORT` instead of hardcoding 3000. SSRF self-loop detection also uses the dynamic port.
 
 ### v1.0.2
 - **Category Mappings UX** — When a category provider is set to Cloud, the local model picker is replaced with a "Cloud not configured" warning (if no Cloud API URL is set) or a "Cloud Provider Active" hint (if configured). X button moved outside the card corner to avoid overlapping the provider dropdown; removing a category now shows a confirmation dialog.

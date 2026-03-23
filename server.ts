@@ -2,18 +2,15 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import fs from "fs/promises";
 import crypto from "crypto";
 import log from "./logger.js";
+import { initDb, readConfig, writeConfig, listConversations, createConv, updateConv, deleteConv, close as closeDb } from "./db.js";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CONFIG_DIR = process.env.CONFIG_DIR || path.join(process.cwd(), "data");
-const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
-const CONVERSATIONS_PATH = path.join(CONFIG_DIR, "conversations.json");
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || (() => {
   if (ADMIN_API_KEY) {
@@ -105,9 +102,10 @@ function validateUrl(url: string): { valid: boolean; reason?: string } {
     if (BLOCKED_HOSTS.includes(parsed.hostname)) {
       return { valid: false, reason: `Blocked host "${parsed.hostname}"` };
     }
-    // Block loopback to self (Nexus runs on port 3000)
+    // Block loopback to self
+    const selfPort = process.env.PORT || '3000';
     const selfHosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
-    if (selfHosts.includes(parsed.hostname) && parsed.port === '3000') {
+    if (selfHosts.includes(parsed.hostname) && (parsed.port === selfPort || (!parsed.port && selfPort === '80'))) {
       return { valid: false, reason: 'URL points back to Nexus Orchestrator itself' };
     }
     return { valid: true };
@@ -139,68 +137,7 @@ function maskKey(key: string | undefined): string {
   return `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
 }
 
-// Encryption Utilities
-const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12;
-const SALT_LENGTH = 16;
-const TAG_LENGTH = 16;
-
-function deriveKey(password: string, salt: Buffer) {
-  return crypto.scryptSync(password, salt, 32);
-}
-
-function encrypt(text: string, password: string) {
-  if (!password) return text;
-  const salt = crypto.randomBytes(SALT_LENGTH);
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const key = deriveKey(password, salt);
-  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
-  const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([salt, iv, tag, encrypted]).toString('base64');
-}
-
-function decrypt(data: string, password: string) {
-  if (!password) return data;
-  try {
-    const buffer = Buffer.from(data, 'base64');
-    if (buffer.length < SALT_LENGTH + IV_LENGTH + TAG_LENGTH) {
-      return data; // Likely plaintext
-    }
-    const salt = buffer.subarray(0, SALT_LENGTH);
-    const iv = buffer.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
-    const tag = buffer.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + TAG_LENGTH);
-    const encrypted = buffer.subarray(SALT_LENGTH + IV_LENGTH + TAG_LENGTH);
-    const key = deriveKey(password, salt);
-    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
-    decipher.setAuthTag(tag);
-    return decipher.update(encrypted) + decipher.final('utf8');
-  } catch (e) {
-    return data; // Fallback to plaintext if decryption fails
-  }
-}
-
-async function readEncryptedJson(filePath: string, key: string) {
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    if (!content.trim()) return [];
-    const decrypted = decrypt(content, key);
-    try {
-      return JSON.parse(decrypted);
-    } catch (e) {
-      // If decryption worked but parsing failed, it might have been plaintext
-      return JSON.parse(content);
-    }
-  } catch (e) {
-    return [];
-  }
-}
-
-async function writeEncryptedJson(filePath: string, data: any, key: string) {
-  const json = JSON.stringify(data, null, 2);
-  const encrypted = encrypt(json, key);
-  await fs.writeFile(filePath, encrypted);
-}
+// Encryption functions moved to crypto.ts, storage moved to db.ts
 
 // Middleware to protect admin endpoints
 const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -221,96 +158,11 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
   res.status(401).json({ error: "Unauthorized: Admin API Key required" });
 };
 
-async function ensureConfig() {
-  try {
-    // Ensure data directory exists
-    await fs.mkdir(CONFIG_DIR, { recursive: true });
-
-    let existingConfig = await readEncryptedJson(CONFIG_PATH, ENCRYPTION_SECRET);
-    
-    // If empty, try to migrate from old location if it exists
-    if (!existingConfig || Object.keys(existingConfig).length === 0) {
-      const oldPath = path.join(process.cwd(), "config.json");
-      try {
-        const content = await fs.readFile(oldPath, "utf-8");
-        existingConfig = JSON.parse(content);
-        log.info('Migrating config.json from root to data directory');
-        await writeEncryptedJson(CONFIG_PATH, existingConfig, ENCRYPTION_SECRET);
-      } catch (err) {
-        // No old file either
-        existingConfig = DEFAULT_CONFIG;
-      }
-    }
-
-    // Merge existing config with DEFAULT_CONFIG to ensure new keys (like router) exist
-    const mergedConfig = {
-      ...DEFAULT_CONFIG,
-      ...existingConfig,
-      router: {
-        ...DEFAULT_CONFIG.router,
-        ...(existingConfig.router || {})
-      },
-      categories: {
-        ...DEFAULT_CONFIG.categories,
-        ...(existingConfig.categories || {})
-      }
-    };
-    
-    // Migration: If router provider is gemini, convert to openai
-    if (mergedConfig.router.provider === 'gemini') {
-      mergedConfig.router.provider = 'openai';
-    }
-
-    // Migration: If any category provider is 'gemini', convert to 'cloud'
-    for (const cat of Object.keys(mergedConfig.categories)) {
-      if ((mergedConfig.categories[cat] as any).provider === 'gemini') {
-        mergedConfig.categories[cat].provider = 'cloud';
-      }
-    }
-    
-    // If something was added, write it back
-    if (JSON.stringify(mergedConfig) !== JSON.stringify(existingConfig)) {
-      log.info('Migrating config.json to include new fields');
-      await writeEncryptedJson(CONFIG_PATH, mergedConfig, ENCRYPTION_SECRET);
-    }
-    
-    updateGlobalVars(mergedConfig);
-  } catch (error: any) {
-    if (error.code === 'EACCES') {
-      log.fatal({ path: CONFIG_PATH }, 'Permission denied writing config. Ensure the directory is writable.');
-      process.exit(1);
-    }
-    
-    try {
-      log.info('Initializing default config.json');
-      await writeEncryptedJson(CONFIG_PATH, DEFAULT_CONFIG, ENCRYPTION_SECRET);
-      updateGlobalVars(DEFAULT_CONFIG);
-    } catch (writeError: any) {
-      if (writeError.code === 'EACCES') {
-        log.fatal({ path: CONFIG_PATH }, 'Permission denied creating config. Check volume mount permissions.');
-        process.exit(1);
-      }
-      log.error({ err: writeError }, 'Failed to initialize config');
-    }
-  }
-}
-
-async function ensureConversations() {
-  try {
-    await fs.access(CONVERSATIONS_PATH);
-  } catch (e) {
-    log.info('Initializing empty conversations.json');
-    if (ENCRYPTION_SECRET) {
-      await writeEncryptedJson(CONVERSATIONS_PATH, [], ENCRYPTION_SECRET);
-    } else {
-      await fs.writeFile(CONVERSATIONS_PATH, JSON.stringify([], null, 2));
-    }
-  }
-}
+// Config and conversations init/migration handled by db.ts initDb()
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   app.use(express.json({ limit: '50mb' }));
 
@@ -329,8 +181,12 @@ async function startServer() {
     next();
   });
 
-  await ensureConfig();
-  await ensureConversations();
+  const initialConfig = await initDb(ENCRYPTION_SECRET, DEFAULT_CONFIG);
+  updateGlobalVars(initialConfig);
+
+  // Clean shutdown
+  process.on('SIGTERM', () => { closeDb(); process.exit(0); });
+  process.on('SIGINT', () => { closeDb(); process.exit(0); });
 
   // Auth status — only reveals if auth is required, not implementation details
   app.get("/api/auth/status", (req, res) => {
@@ -370,48 +226,22 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Initialize LOCAL_URL and LOCAL_KEY from config
-  try {
-    const config = await readEncryptedJson(CONFIG_PATH, ENCRYPTION_SECRET);
-    if (config.localUrl) {
-      LOCAL_URL = config.localUrl;
-      if (!LOCAL_URL.startsWith('http')) LOCAL_URL = `http://${LOCAL_URL}`;
-      LOCAL_URL = LOCAL_URL.replace(/\/$/, "");
-    }
-    if (config.localKey) {
-      LOCAL_KEY = config.localKey;
-    }
-    log.info({ url: LOCAL_URL }, 'Initialized with Provider URL');
-  } catch (err) {
-    log.error({ err }, 'Failed to load config for initialization');
-  }
-
   // Config endpoints
   app.get("/api/config", authMiddleware, async (req, res) => {
     try {
-      const config = await readEncryptedJson(CONFIG_PATH, ENCRYPTION_SECRET);
-      
-      // Ensure router exists to avoid spread errors
-      const safeConfig = {
-        ...DEFAULT_CONFIG,
-        ...config,
-        router: {
-          ...DEFAULT_CONFIG.router,
-          ...(config.router || {})
-        }
-      };
-      
+      const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+
       // Mask sensitive keys before sending to client
       const maskedConfig = {
-        ...safeConfig,
-        localKey: safeConfig.localKey ? maskKey(safeConfig.localKey) : "",
-        cloudKey: safeConfig.cloudKey ? maskKey(safeConfig.cloudKey) : "",
+        ...config,
+        localKey: config.localKey ? maskKey(config.localKey) : "",
+        cloudKey: config.cloudKey ? maskKey(config.cloudKey) : "",
         router: {
-          ...safeConfig.router,
-          key: safeConfig.router?.key ? maskKey(safeConfig.router.key) : ""
+          ...config.router,
+          key: config.router?.key ? maskKey(config.router.key) : ""
         }
       };
-      
+
       res.json(maskedConfig);
     } catch (error: any) {
       log.error({ err: error }, 'Config read error');
@@ -441,11 +271,11 @@ async function startServer() {
         }
       }
 
-      log.info({ path: CONFIG_PATH }, 'Saving configuration');
+      log.info('Saving configuration');
 
       // Read current config to preserve masked keys
-      const currentConfig = await readEncryptedJson(CONFIG_PATH, ENCRYPTION_SECRET);
-      
+      const currentConfig = readConfig(ENCRYPTION_SECRET) || {};
+
       // If the incoming key is masked, use the current key
       if (newConfig.localKey && typeof newConfig.localKey === 'string' && (newConfig.localKey.includes("...") || newConfig.localKey === "****")) {
         newConfig.localKey = currentConfig.localKey || "";
@@ -457,16 +287,14 @@ async function startServer() {
         newConfig.router.key = currentConfig.router?.key || "";
       }
 
-      // Ensure directory exists before writing
-      await fs.mkdir(path.dirname(CONFIG_PATH), { recursive: true });
-      await writeEncryptedJson(CONFIG_PATH, newConfig, ENCRYPTION_SECRET);
-      
+      writeConfig(newConfig, ENCRYPTION_SECRET);
+
       try {
         updateGlobalVars(newConfig);
       } catch (varError: any) {
         log.warn({ err: varError }, 'Configuration saved but failed to update global variables');
       }
-      
+
       res.json({ status: "ok" });
     } catch (error: any) {
       log.error({ err: error }, 'Config save error');
@@ -478,11 +306,12 @@ async function startServer() {
   app.get("/api/health", authMiddleware, async (req, res) => {
     try {
       // Prevent self-reference loops
-      if (LOCAL_URL.includes('localhost:3000') || LOCAL_URL.includes('0.0.0.0:3000') || LOCAL_URL.includes('127.0.0.1:3000')) {
-        return res.json({ 
-          status: "disconnected", 
-          local: LOCAL_URL, 
-          message: "⚠️ Provider URL is pointing to the Nexus Orchestrator itself (port 3000). Please update the Provider URL in the Models tab to your actual local LLM endpoint." 
+      const selfPort = PORT.toString();
+      if (LOCAL_URL.includes(`localhost:${selfPort}`) || LOCAL_URL.includes(`0.0.0.0:${selfPort}`) || LOCAL_URL.includes(`127.0.0.1:${selfPort}`)) {
+        return res.json({
+          status: "disconnected",
+          local: LOCAL_URL,
+          message: `⚠️ Provider URL is pointing to the Nexus Orchestrator itself (port ${selfPort}). Please update the Provider URL in the Models tab to your actual local LLM endpoint.`
         });
       }
 
@@ -667,7 +496,7 @@ async function startServer() {
   app.post("/api/router", authMiddleware, async (req, res) => {
     const { prompt } = req.body;
     try {
-      const config = await readEncryptedJson(CONFIG_PATH, ENCRYPTION_SECRET);
+      const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
       const { router } = config;
 
       // Determine URL and Key for routing
@@ -776,8 +605,8 @@ async function startServer() {
     const { messages, decision } = req.body;
 
     try {
-      const config = await readEncryptedJson(CONFIG_PATH, ENCRYPTION_SECRET);
-      
+      const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+
       // Determine provider URL and Key based on decision
       let baseUrl = config.localUrl || LOCAL_URL;
       let apiKey = config.localKey || LOCAL_KEY;
@@ -1069,8 +898,7 @@ async function startServer() {
   // Conversations Endpoints
   app.get("/api/conversations", authMiddleware, async (req, res) => {
     try {
-      const conversations = await readEncryptedJson(CONVERSATIONS_PATH, ENCRYPTION_SECRET);
-      res.json(conversations);
+      res.json(listConversations());
     } catch (error: any) {
       log.error({ err: error }, 'Error fetching conversations');
       res.status(500).json({ error: "Failed to fetch conversations" });
@@ -1080,17 +908,7 @@ async function startServer() {
   app.post("/api/conversations", authMiddleware, async (req, res) => {
     try {
       const { title, messages } = req.body;
-      const conversations = await readEncryptedJson(CONVERSATIONS_PATH, ENCRYPTION_SECRET);
-      
-      const newConversation = {
-        id: Date.now().toString(),
-        title: title || "New Conversation",
-        messages: messages || [],
-        updatedAt: new Date().toISOString()
-      };
-      
-      conversations.unshift(newConversation);
-      await writeEncryptedJson(CONVERSATIONS_PATH, conversations, ENCRYPTION_SECRET);
+      const newConversation = createConv(title || "New Conversation", messages || []);
       res.json(newConversation);
     } catch (error: any) {
       log.error({ err: error }, 'Error creating conversation');
@@ -1102,17 +920,9 @@ async function startServer() {
     try {
       const { id } = req.params;
       const { title, messages } = req.body;
-      const conversations = await readEncryptedJson(CONVERSATIONS_PATH, ENCRYPTION_SECRET);
-      
-      const index = conversations.findIndex((c: any) => c.id === id);
-      if (index === -1) return res.status(404).json({ error: "Conversation not found" });
-      
-      if (title !== undefined) conversations[index].title = title;
-      if (messages !== undefined) conversations[index].messages = messages;
-      conversations[index].updatedAt = new Date().toISOString();
-      
-      await writeEncryptedJson(CONVERSATIONS_PATH, conversations, ENCRYPTION_SECRET);
-      res.json(conversations[index]);
+      const updated = updateConv(id, { title, messages });
+      if (!updated) return res.status(404).json({ error: "Conversation not found" });
+      res.json(updated);
     } catch (error: any) {
       log.error({ err: error }, 'Error updating conversation');
       res.status(500).json({ error: "Failed to update conversation" });
@@ -1122,10 +932,7 @@ async function startServer() {
   app.delete("/api/conversations/:id", authMiddleware, async (req, res) => {
     try {
       const { id } = req.params;
-      let conversations = await readEncryptedJson(CONVERSATIONS_PATH, ENCRYPTION_SECRET);
-      
-      conversations = conversations.filter((c: any) => c.id !== id);
-      await writeEncryptedJson(CONVERSATIONS_PATH, conversations, ENCRYPTION_SECRET);
+      deleteConv(id);
       res.json({ success: true });
     } catch (error: any) {
       log.error({ err: error }, 'Error deleting conversation');
