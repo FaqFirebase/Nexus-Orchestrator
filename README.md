@@ -144,9 +144,9 @@ docker build -t nexus-orchestrator:latest .
 - ✅ Cookie-based auth — httpOnly session cookies, timing-safe key comparison
 - ✅ SSRF protection — URL validation on config save, blocks non-http(s) schemes and cloud metadata endpoints
 - ✅ LaTeX rendering — KaTeX support for math notation output from reasoning models
-- [ ] Input validation — Zod schemas for all API endpoints
-- [ ] Tests — Vitest for backend endpoint and routing logic testing
-- [ ] Rate limiting — Prevent unlimited authenticated requests
+- ✅ Input validation — Zod schemas for all API endpoints (v1.0.5)
+- ✅ Tests — Vitest for validation schemas (v1.0.5)
+- ✅ Rate limiting — Login brute-force protection + API request throttling (v1.0.5)
 - ✅ SQLite migration — Replaced JSON file storage with SQLite + WAL mode (v1.0.3)
 - ✅ Model fallback — Auto-fallback to next model in category pool when selected model is unavailable (v1.0.4)
 - [ ] Conversation pagination — API pagination + lazy-loading UI instead of loading all conversations at once

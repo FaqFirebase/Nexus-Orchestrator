@@ -3,8 +3,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 import log from "./logger.js";
 import { initDb, readConfig, writeConfig, listConversations, createConv, updateConv, deleteConv, close as closeDb } from "./db.js";
+import { validate, loginSchema, configSchema, routerSchema, chatSchema, createConversationSchema, updateConversationSchema } from "./validation.js";
 
 dotenv.config();
 
@@ -139,6 +141,23 @@ function maskKey(key: string | undefined): string {
 
 // Encryption functions moved to crypto.ts, storage moved to db.ts
 
+// Rate limiters
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { error: 'Too many login attempts. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60,
+  message: { error: 'Too many requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Middleware to protect admin endpoints
 const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!ADMIN_API_KEY) {
@@ -202,7 +221,7 @@ async function startServer() {
   });
 
   // Login — validate key, set httpOnly cookie
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", authLimiter, validate(loginSchema), (req, res) => {
     const { key } = req.body;
     if (!key || !ADMIN_API_KEY) {
       return res.status(401).json({ error: "Invalid credentials" });
@@ -249,12 +268,9 @@ async function startServer() {
     }
   });
 
-  app.post("/api/config", authMiddleware, async (req, res) => {
+  app.post("/api/config", authMiddleware, validate(configSchema), async (req, res) => {
     try {
       const newConfig = req.body;
-      if (!newConfig || typeof newConfig !== 'object') {
-        return res.status(400).json({ error: "Invalid configuration data" });
-      }
 
       // Validate all URLs before saving
       const urlsToCheck = [
@@ -493,7 +509,7 @@ async function startServer() {
   });
 
   // Router Proxy Endpoint
-  app.post("/api/router", authMiddleware, async (req, res) => {
+  app.post("/api/router", authMiddleware, apiLimiter, validate(routerSchema), async (req, res) => {
     const { prompt } = req.body;
     try {
       const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
@@ -601,7 +617,7 @@ async function startServer() {
   });
 
   // Main Chat Routing Endpoint
-  app.post("/api/chat", authMiddleware, async (req, res) => {
+  app.post("/api/chat", authMiddleware, apiLimiter, validate(chatSchema), async (req, res) => {
     const { messages, decision } = req.body;
 
     try {
@@ -916,7 +932,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/conversations", authMiddleware, async (req, res) => {
+  app.post("/api/conversations", authMiddleware, validate(createConversationSchema), async (req, res) => {
     try {
       const { title, messages } = req.body;
       const newConversation = createConv(title || "New Conversation", messages || []);
@@ -927,7 +943,7 @@ async function startServer() {
     }
   });
 
-  app.put("/api/conversations/:id", authMiddleware, async (req, res) => {
+  app.put("/api/conversations/:id", authMiddleware, validate(updateConversationSchema), async (req, res) => {
     try {
       const { id } = req.params;
       const { title, messages } = req.body;

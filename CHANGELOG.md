@@ -1,5 +1,10 @@
 # Changelog
 
+### v1.0.5
+- **Input validation** — All API endpoints now validate request bodies with Zod schemas. Malformed requests get a clear 400 error before hitting any business logic.
+- **Rate limiting** — Login endpoint limited to 20 attempts per 15 minutes. Chat, router, and API endpoints limited to 60 requests per minute. Returns standard `Retry-After` headers.
+- **Test infrastructure** — Vitest with 18 tests covering all validation schemas. Run with `npm test`.
+
 ### v1.0.4
 - **Model fallback** — If a model in a category pool fails (unavailable, error, timeout), the server automatically tries the next model in the pool before giving up. Logs each fallback attempt. Error messages now list all models tried.
 - **Chat input UX** — Textarea auto-grows as you type (up to 192px) and shrinks when text is deleted. Shows character count and line count below the input. Smooth height transitions.
