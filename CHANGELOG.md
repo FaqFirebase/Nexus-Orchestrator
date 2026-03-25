@@ -1,4 +1,5 @@
 # Changelog
+Version numbers are based off of Dock Hub releases.
 
 ### v1.0.9
 - **Bug fixes** — Three correctness fixes with no user-facing config changes required:
