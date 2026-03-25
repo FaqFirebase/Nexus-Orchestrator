@@ -1,9 +1,14 @@
 # Changelog
 
+### v1.0.8
+- **Projects** — Organize conversations into named project folders in the sidebar. Click a project to collapse/expand it, double-click to rename, right-click any conversation to move it to a project or remove it. Deleting a project lets you choose to keep the chats (they move to unassigned) or delete them all. Projects and assignments persist across restarts.
+- **Error Boundaries** — Each tab (Chat, Models, System) is now wrapped in an error boundary. A crash in one tab shows a fallback card with a "Try again" button instead of blanking the entire UI.
+
 ### v1.0.7
 - **Dockerfile fix** — Root-level TypeScript files now copied with `*.ts` glob instead of individual filenames. Prevents missing module errors when new backend files are added.
 - **Documentation** — Added Configuration Guide to README covering Local Provider, Cloud Provider, Intent Router, Discovered Models, and Category Mappings with usage instructions and a category reference table.
 - **Ignore files** — Added `conversations.json` and `*.migrated` to both `.gitignore` and `.dockerignore`.
+- **Chat timeout** — Per-attempt timeout increased from 15s to 60s for all categories. Prevents cold model load failures on first request to a large model.
 
 ### v1.0.6
 - **Conversation pagination** — Sidebar now loads conversations in pages of 50 with a "Load More" button. Messages are fetched on demand when you select a conversation, instead of loading everything upfront. New `GET /api/conversations?limit=50&offset=0` returns metadata only; `GET /api/conversations/:id` returns full messages.

@@ -62,6 +62,20 @@ export const updateConversationSchema = z.object({
   messages: z.array(z.any()).optional(),
 });
 
+// Projects
+export const createProjectSchema = z.object({
+  name: z.string().min(1).max(100),
+});
+
+export const updateProjectSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  collapsed: z.boolean().optional(),
+});
+
+export const assignConversationSchema = z.object({
+  projectId: z.string().nullable(),
+});
+
 // Middleware helper
 import type { Request, Response, NextFunction } from 'express';
 

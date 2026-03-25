@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { Message, Conversation } from '../types';
+import type { Message, Conversation, Project } from '../types';
 
 const PAGE_SIZE = 50;
 
@@ -9,6 +9,7 @@ export function useConversations() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
+  const [projects, setProjects] = useState<Project[]>([]);
 
   // Ref so fetchConversations doesn't recreate every time activeConversationId changes
   const activeConversationIdRef = useRef<string | null>(null);
@@ -151,6 +152,98 @@ export function useConversations() {
     }
   }, []);
 
+  // --- Projects ---
+
+  const fetchProjects = useCallback(async () => {
+    try {
+      const res = await fetch(`${window.location.origin}/api/projects`);
+      if (res.ok) setProjects(await res.json());
+    } catch (err) {
+      console.error("Failed to fetch projects", err);
+    }
+  }, []);
+
+  const createProject = useCallback(async (name: string) => {
+    try {
+      const res = await fetch(`${window.location.origin}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const proj = await res.json();
+        setProjects(prev => [...prev, proj]);
+      }
+    } catch (err) {
+      console.error("Failed to create project", err);
+    }
+  }, []);
+
+  const renameProject = useCallback(async (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      const res = await fetch(`${window.location.origin}/api/projects/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.ok) {
+        setProjects(prev => prev.map(p => p.id === id ? { ...p, name: trimmed } : p));
+      }
+    } catch (err) {
+      console.error("Failed to rename project", err);
+    }
+  }, []);
+
+  const toggleProjectCollapsed = useCallback(async (id: string) => {
+    setProjects(prev => {
+      const proj = prev.find(p => p.id === id);
+      if (!proj) return prev;
+      const collapsed = !proj.collapsed;
+      fetch(`${window.location.origin}/api/projects/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collapsed }),
+      }).catch(console.error);
+      return prev.map(p => p.id === id ? { ...p, collapsed } : p);
+    });
+  }, []);
+
+  const deleteProject = useCallback(async (id: string, deleteChats: boolean) => {
+    try {
+      const res = await fetch(`${window.location.origin}/api/projects/${id}?deleteChats=${deleteChats}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setProjects(prev => prev.filter(p => p.id !== id));
+        if (deleteChats) {
+          setConversations(prev => prev.filter(c => c.projectId !== id));
+          setTotalCount(prev => Math.max(0, prev - conversations.filter(c => c.projectId === id).length));
+        } else {
+          setConversations(prev => prev.map(c => c.projectId === id ? { ...c, projectId: null } : c));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to delete project", err);
+    }
+  }, [conversations]);
+
+  const assignConversationToProject = useCallback(async (convId: string, projectId: string | null) => {
+    try {
+      const res = await fetch(`${window.location.origin}/api/conversations/${convId}/project`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      });
+      if (res.ok) {
+        setConversations(prev => prev.map(c => c.id === convId ? { ...c, projectId } : c));
+      }
+    } catch (err) {
+      console.error("Failed to assign conversation to project", err);
+    }
+  }, []);
+
   const updateActiveConversationMessages = useCallback(async (newMessages: Message[]) => {
     if (!activeConversationId) return;
     try {
@@ -183,5 +276,13 @@ export function useConversations() {
     selectConversation,
     renameConversation,
     updateActiveConversationMessages,
+    // Projects
+    projects,
+    fetchProjects,
+    createProject,
+    renameProject,
+    toggleProjectCollapsed,
+    deleteProject,
+    assignConversationToProject,
   };
 }

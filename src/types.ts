@@ -44,6 +44,14 @@ export interface Conversation {
   title: string;
   messages: Message[];
   updatedAt: string;
+  projectId?: string | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  collapsed: boolean;
+  createdAt: string;
 }
 
 export interface NexusConfig {

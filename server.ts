@@ -5,8 +5,8 @@ import dotenv from "dotenv";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import log from "./logger.js";
-import { initDb, readConfig, writeConfig, listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv, close as closeDb } from "./db.js";
-import { validate, loginSchema, configSchema, routerSchema, chatSchema, createConversationSchema, updateConversationSchema } from "./validation.js";
+import { initDb, readConfig, writeConfig, listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv, listProjects, createProject, updateProject, deleteProject, assignConversation, close as closeDb } from "./db.js";
+import { validate, loginSchema, configSchema, routerSchema, chatSchema, createConversationSchema, updateConversationSchema, createProjectSchema, updateProjectSchema, assignConversationSchema } from "./validation.js";
 
 dotenv.config();
 
@@ -741,9 +741,7 @@ async function startServer() {
       };
 
       const hasAttachments = messages.some((m: any) => m.attachments && m.attachments.length > 0);
-      const isVision = decision.category === 'VISION' || hasAttachments;
-      // Vision/large models need more time to load; use a longer per-attempt timeout
-      const attemptTimeoutMs = isVision ? 60000 : 15000;
+      const attemptTimeoutMs = 60000;
 
       // Build ordered list of models to try: primary model first, then fallbacks
       const modelsToTry = [decision.model, ...(decision.fallbackModels || [])].filter(Boolean);
@@ -1035,6 +1033,60 @@ async function startServer() {
     } catch (error: any) {
       log.error({ err: error }, 'Error deleting conversation');
       res.status(500).json({ error: "Failed to delete conversation" });
+    }
+  });
+
+  // --- Projects ---
+
+  app.get("/api/projects", authMiddleware, (_req, res) => {
+    try {
+      res.json(listProjects());
+    } catch (error: any) {
+      log.error({ err: error }, 'Error listing projects');
+      res.status(500).json({ error: "Failed to list projects" });
+    }
+  });
+
+  app.post("/api/projects", authMiddleware, validate(createProjectSchema), (req, res) => {
+    try {
+      const { name } = req.body;
+      res.json(createProject(name));
+    } catch (error: any) {
+      log.error({ err: error }, 'Error creating project');
+      res.status(500).json({ error: "Failed to create project" });
+    }
+  });
+
+  app.put("/api/projects/:id", authMiddleware, validate(updateProjectSchema), (req, res) => {
+    try {
+      const result = updateProject(req.params.id, req.body);
+      if (!result) return res.status(404).json({ error: "Project not found" });
+      res.json(result);
+    } catch (error: any) {
+      log.error({ err: error }, 'Error updating project');
+      res.status(500).json({ error: "Failed to update project" });
+    }
+  });
+
+  app.delete("/api/projects/:id", authMiddleware, (req, res) => {
+    try {
+      const deleteChats = req.query.deleteChats === 'true';
+      deleteProject(req.params.id, deleteChats);
+      res.json({ success: true });
+    } catch (error: any) {
+      log.error({ err: error }, 'Error deleting project');
+      res.status(500).json({ error: "Failed to delete project" });
+    }
+  });
+
+  app.patch("/api/conversations/:id/project", authMiddleware, validate(assignConversationSchema), (req, res) => {
+    try {
+      const { projectId } = req.body;
+      assignConversation(req.params.id, projectId);
+      res.json({ success: true });
+    } catch (error: any) {
+      log.error({ err: error }, 'Error assigning conversation to project');
+      res.status(500).json({ error: "Failed to assign conversation" });
     }
   });
 

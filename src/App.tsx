@@ -13,6 +13,7 @@ import Sidebar from './components/Sidebar';
 import ChatTab from './components/chat/ChatTab';
 import ModelsTab from './components/models/ModelsTab';
 import SystemTab from './components/system/SystemTab';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'chat' | 'models' | 'system'>('chat');
@@ -51,6 +52,7 @@ export default function App() {
   useEffect(() => {
     connection.checkConnection(true);
     convos.fetchConversations();
+    convos.fetchProjects();
     const interval = setInterval(() => connection.checkConnection(false), 10000);
     return () => clearInterval(interval);
   }, [connection.checkConnection, convos.fetchConversations]);
@@ -99,6 +101,12 @@ export default function App() {
               onNavigateToChat={() => setActiveTab('chat')}
               onLoadMore={convos.loadMoreConversations}
               hasMore={convos.hasMore}
+              projects={convos.projects}
+              onCreateProject={convos.createProject}
+              onRenameProject={convos.renameProject}
+              onDeleteProject={convos.deleteProject}
+              onToggleProjectCollapsed={convos.toggleProjectCollapsed}
+              onAssignConversationToProject={convos.assignConversationToProject}
             />
           )}
         </AnimatePresence>
@@ -106,53 +114,59 @@ export default function App() {
         <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
           {activeTab === 'chat' ? (
             <div className="max-w-5xl mx-auto w-full px-6 py-8 h-full flex flex-col">
-              <ChatTab
-                messages={convos.messages}
-                connectionStatus={connection.connectionStatus}
-                isLoading={chat.isLoading}
-                routingStep={chat.routingStep}
-                input={chat.input}
-                setInput={chat.setInput}
-                attachments={chat.attachments}
-                removeAttachment={chat.removeAttachment}
-                fileInputRef={chat.fileInputRef}
-                handleFileSelect={chat.handleFileSelect}
-                handleSend={chat.handleSend}
-                handleStop={chat.handleStop}
-                setActiveTab={setActiveTab}
-              />
+              <ErrorBoundary label="Chat">
+                <ChatTab
+                  messages={convos.messages}
+                  connectionStatus={connection.connectionStatus}
+                  isLoading={chat.isLoading}
+                  routingStep={chat.routingStep}
+                  input={chat.input}
+                  setInput={chat.setInput}
+                  attachments={chat.attachments}
+                  removeAttachment={chat.removeAttachment}
+                  fileInputRef={chat.fileInputRef}
+                  handleFileSelect={chat.handleFileSelect}
+                  handleSend={chat.handleSend}
+                  handleStop={chat.handleStop}
+                  setActiveTab={setActiveTab}
+                />
+              </ErrorBoundary>
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto">
               <div className="max-w-5xl mx-auto w-full px-6 py-8">
                 {activeTab === 'models' ? (
-                  <ModelsTab
-                    config={configHook.config}
-                    setConfig={configHook.setConfig}
-                    showApiKey={configHook.showApiKey}
-                    setShowApiKey={configHook.setShowApiKey}
-                    saveStatus={configHook.saveStatus}
-                    saveError={configHook.saveError}
-                    saveConfig={configHook.saveConfig}
-                    authRequired={auth.authRequired}
-                    isAuthorized={auth.isAuthorized}
-                    logout={auth.logout}
-                    localModels={connection.localModels}
-                    connectionStatus={connection.connectionStatus}
-                    isLoading={chat.isLoading}
-                    checkConnection={connection.checkConnection}
-                    newCategoryName={configHook.newCategoryName}
-                    setNewCategoryName={configHook.setNewCategoryName}
-                    addCategory={configHook.addCategory}
-                    removeCategory={configHook.removeCategory}
-                  />
+                  <ErrorBoundary label="Models">
+                    <ModelsTab
+                      config={configHook.config}
+                      setConfig={configHook.setConfig}
+                      showApiKey={configHook.showApiKey}
+                      setShowApiKey={configHook.setShowApiKey}
+                      saveStatus={configHook.saveStatus}
+                      saveError={configHook.saveError}
+                      saveConfig={configHook.saveConfig}
+                      authRequired={auth.authRequired}
+                      isAuthorized={auth.isAuthorized}
+                      logout={auth.logout}
+                      localModels={connection.localModels}
+                      connectionStatus={connection.connectionStatus}
+                      isLoading={chat.isLoading}
+                      checkConnection={connection.checkConnection}
+                      newCategoryName={configHook.newCategoryName}
+                      setNewCategoryName={configHook.setNewCategoryName}
+                      addCategory={configHook.addCategory}
+                      removeCategory={configHook.removeCategory}
+                    />
+                  </ErrorBoundary>
                 ) : (
-                  <SystemTab
-                    config={configHook.config}
-                    conversations={convos.conversations}
-                    fetchConversations={convos.fetchConversations}
-                    onSaveConfig={configHook.saveConfig}
-                  />
+                  <ErrorBoundary label="System">
+                    <SystemTab
+                      config={configHook.config}
+                      conversations={convos.conversations}
+                      fetchConversations={convos.fetchConversations}
+                      onSaveConfig={configHook.saveConfig}
+                    />
+                  </ErrorBoundary>
                 )}
               </div>
             </div>
