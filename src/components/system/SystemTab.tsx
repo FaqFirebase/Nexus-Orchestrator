@@ -20,6 +20,15 @@ export default function SystemTab({ config, conversations, fetchConversations, o
     a.click();
   };
 
+  const exportConversations = async () => {
+    try {
+      const res = await fetch(`${window.location.origin}/api/conversations/export`);
+      if (res.ok) downloadJson(await res.json(), 'conversations.json');
+    } catch (err) {
+      console.error('Failed to export conversations', err);
+    }
+  };
+
   return (
     <div className="pb-32 scroll-smooth">
       <div className="max-w-4xl mx-auto space-y-8">
@@ -102,7 +111,7 @@ export default function SystemTab({ config, conversations, fetchConversations, o
                 <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Conversations</h3>
               </div>
               <button
-                onClick={() => downloadJson(conversations, 'conversations.json')}
+                onClick={exportConversations}
                 className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest hover:text-emerald-300 transition-colors"
               >
                 Export JSON

@@ -874,6 +874,7 @@ async function startServer() {
         let tip = "";
         const status = lastError?.status;
         const isAbort = !status && (lastError?.name === 'AbortError' || lastError?.message?.includes('aborted'));
+        const isVision = decision.category === 'VISION';
         if (status === 405) {
           tip = " \n\n💡 TIP: 'Method Not Allowed' (405) means the URL path is incorrect. Ensure your Provider URL is correct (e.g., add '/api' for Open WebUI).";
         } else if (status === 404) {
@@ -907,13 +908,15 @@ async function startServer() {
           reader.cancel().catch(() => {});
         });
 
+        let serverBuf = '';
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-          
+
+          serverBuf += decoder.decode(value, { stream: true });
+          const lines = serverBuf.split('\n');
+          serverBuf = lines.pop() ?? ''; // keep incomplete trailing fragment
+
           for (const line of lines) {
             if (!line.trim()) continue;
             
@@ -967,6 +970,16 @@ async function startServer() {
         error: error.message,
         tip: "Ensure your provider is running and accessible."
       });
+    }
+  });
+
+  // Full export — all conversations with all messages (for backup/export)
+  app.get("/api/conversations/export", authMiddleware, (_req, res) => {
+    try {
+      res.json(listConversations());
+    } catch (error: any) {
+      log.error({ err: error }, 'Error exporting conversations');
+      res.status(500).json({ error: "Failed to export conversations" });
     }
   });
 

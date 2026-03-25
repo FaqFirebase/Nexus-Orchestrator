@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.0.9
+- **Bug fixes** — Three correctness fixes with no user-facing config changes required:
+  - **Streaming chunk buffer** — SSE stream parsing on both server and client now carries a leftover buffer across `read()` calls. Previously a JSON object split across two network reads would be silently discarded, dropping tokens and usage data mid-response.
+  - **Router cache not persisting** — `routerCacheEnabled` was missing from the Zod config schema, so the validation middleware stripped it before `writeConfig()` ran. The toggle appeared to save but reverted on every reload. Now persists correctly.
+  - **Conversations export incomplete** — System tab export now hits a dedicated `GET /api/conversations/export` endpoint that reads all conversations with full messages from SQLite. Previously it serialised the paginated in-memory sidebar list, which contained metadata only and missed most message history.
+
 ### v1.0.8
 - **Projects** — Organize conversations into named project folders in the sidebar. Click a project to collapse/expand it, double-click to rename, right-click any conversation to move it to a project or remove it. Deleting a project lets you choose to keep the chats (they move to unassigned) or delete them all. Projects and assignments persist across restarts.
 - **Error Boundaries** — Each tab (Chat, Models, System) is now wrapped in an error boundary. A crash in one tab shows a fallback card with a "Try again" button instead of blanking the entire UI.

@@ -23,6 +23,7 @@ export const configSchema = z.object({
     key: z.string().optional().default(''),
   }).optional(),
   categories: z.record(z.string(), categorySchema).optional(),
+  routerCacheEnabled: z.boolean().optional(),
 });
 
 // Router

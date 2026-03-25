@@ -237,12 +237,14 @@ export function useChat(deps: UseChatDeps) {
       let accumulatedContent = '';
 
       if (reader) {
+        let clientBuf = '';
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          clientBuf += decoder.decode(value, { stream: true });
+          const lines = clientBuf.split('\n');
+          clientBuf = lines.pop() ?? ''; // keep incomplete trailing fragment
 
           for (const line of lines) {
             if (!line.trim()) continue;
