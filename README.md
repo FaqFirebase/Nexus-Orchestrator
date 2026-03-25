@@ -240,8 +240,7 @@ docker build -t nexus-orchestrator:latest .
 - ✅ Router result caching — In-memory LRU cache with 5-minute TTL, off by default, toggle in System tab (v1.0.6)
 - [ ] Multi-user support — JWT auth + user isolation instead of single shared admin key
 - ✅ Error boundaries — React error boundaries to prevent full UI crashes (v1.0.8)
-- ✅ Projects — Sidebar project folders to organize conversations, right-click to assign (v1.0.8)
-- ✅ Conversation organization — Projects feature replaces archival; group chats into named project folders with collapse/expand, right-click to assign (v1.0.8)
+- ✅ Projects — Organize conversations into named project folders; collapse/expand, right-click to assign, delete project with option to keep or remove chats (v1.0.8)
 - [ ] Request queuing — Job queue for multiple concurrent long-running streams
 - ✅ Stop generation — Cancel button aborts in-flight SSE stream, resets loading state (v1.0.1)
   > **Known limitation:** The UI stops immediately, but Ollama will continue generating in the background until the current response completes. This is a Docker networking constraint — TCP disconnect does not propagate to the Ollama llama runner. Cloud providers (OpenAI, Gemini, etc.) are unaffected.Looking for a fix
