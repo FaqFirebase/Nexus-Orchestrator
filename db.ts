@@ -110,6 +110,20 @@ export function listConversations(): any[] {
   });
 }
 
+// Paginated listing — returns metadata only (no messages)
+export function listConversationsPaginated(limit: number, offset: number): { conversations: any[]; total: number } {
+  const totalRow = db.prepare('SELECT COUNT(*) as count FROM conversations').get() as any;
+  const total = totalRow.count;
+  const convRows = db.prepare('SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC LIMIT ? OFFSET ?').all(limit, offset) as any[];
+  const conversations = convRows.map(conv => ({
+    id: conv.id,
+    title: conv.title,
+    updatedAt: conv.updated_at,
+    messageCount: (db.prepare('SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?').get(conv.id) as any).count,
+  }));
+  return { conversations, total };
+}
+
 export function getConversation(id: string): any | null {
   const conv = db.prepare('SELECT id, title, updated_at FROM conversations WHERE id = ?').get(id) as any;
   if (!conv) return null;

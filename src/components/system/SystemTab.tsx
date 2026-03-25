@@ -7,9 +7,10 @@ interface SystemTabProps {
   config: NexusConfig;
   conversations: Conversation[];
   fetchConversations: () => void;
+  onSaveConfig: (config: NexusConfig) => void;
 }
 
-export default function SystemTab({ config, conversations, fetchConversations }: SystemTabProps) {
+export default function SystemTab({ config, conversations, fetchConversations, onSaveConfig }: SystemTabProps) {
   const downloadJson = (data: any, filename: string) => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -43,6 +44,29 @@ export default function SystemTab({ config, conversations, fetchConversations }:
         </div>
 
         <div className="grid gap-8">
+          {/* Settings */}
+          <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
+            <div className="flex items-center gap-2">
+              <Settings className="w-4 h-4 text-amber-400" />
+              <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Settings</h3>
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <p className="text-sm text-zinc-200 font-medium">Router Result Caching</p>
+                <p className="text-[10px] text-zinc-500 font-mono mt-0.5">Cache identical routing decisions for 5 minutes. Saves API calls when using cloud routers.</p>
+              </div>
+              <button
+                onClick={() => {
+                  const updated = { ...config, routerCacheEnabled: !config.routerCacheEnabled };
+                  onSaveConfig(updated);
+                }}
+                className={`relative w-11 h-6 rounded-full transition-colors ${config.routerCacheEnabled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${config.routerCacheEnabled ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+          </div>
+
           {/* Config JSON */}
           <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
             <div className="flex items-center justify-between">

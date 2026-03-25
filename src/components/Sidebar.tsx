@@ -12,6 +12,8 @@ interface SidebarProps {
   onDeleteConversation: (id: string, e: React.MouseEvent) => void;
   onRenameConversation: (id: string, newTitle: string) => void;
   onNavigateToChat?: () => void;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
 }
 
 export default function Sidebar({
@@ -22,6 +24,8 @@ export default function Sidebar({
   onDeleteConversation,
   onRenameConversation,
   onNavigateToChat,
+  onLoadMore,
+  hasMore,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -126,6 +130,14 @@ export default function Sidebar({
               )}
             </div>
           ))
+        )}
+        {hasMore && onLoadMore && (
+          <button
+            onClick={onLoadMore}
+            className="w-full py-2 text-[9px] font-bold uppercase tracking-widest text-zinc-500 hover:text-emerald-400 transition-colors"
+          >
+            Load More
+          </button>
         )}
       </div>
 

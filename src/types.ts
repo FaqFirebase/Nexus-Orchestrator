@@ -58,6 +58,7 @@ export interface NexusConfig {
     key: string;
   };
   categories: Record<ModelCategory, { models: string[]; provider: 'local' | 'cloud' }>;
+  routerCacheEnabled?: boolean;
 }
 
 export interface ConnectionStatus {

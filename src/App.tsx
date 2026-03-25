@@ -97,6 +97,8 @@ export default function App() {
               onDeleteConversation={convos.deleteConversation}
               onRenameConversation={convos.renameConversation}
               onNavigateToChat={() => setActiveTab('chat')}
+              onLoadMore={convos.loadMoreConversations}
+              hasMore={convos.hasMore}
             />
           )}
         </AnimatePresence>
@@ -149,6 +151,7 @@ export default function App() {
                     config={configHook.config}
                     conversations={convos.conversations}
                     fetchConversations={convos.fetchConversations}
+                    onSaveConfig={configHook.saveConfig}
                   />
                 )}
               </div>

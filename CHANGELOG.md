@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.0.6
+- **Conversation pagination** — Sidebar now loads conversations in pages of 50 with a "Load More" button. Messages are fetched on demand when you select a conversation, instead of loading everything upfront. New `GET /api/conversations?limit=50&offset=0` returns metadata only; `GET /api/conversations/:id` returns full messages.
+- **Router result caching** — Identical routing prompts return cached results for 5 minutes (in-memory LRU, max 100 entries). **Off by default** — enable via the toggle in the System tab. Useful for saving API calls when using a paid cloud router.
+- **FAST category** — New built-in category for trivial/quick responses. Assign your smallest, fastest model (e.g., gemma3:4b) for greetings, yes/no answers, and simple lookups.
+- **SECURITY category** — New built-in category for security analysis, vulnerability assessment, threat modeling, CTF challenges, penetration testing guidance, and cybersecurity topics.
+
 ### v1.0.5
 - **Input validation** — All API endpoints now validate request bodies with Zod schemas. Malformed requests get a clear 400 error before hitting any business logic.
 - **Rate limiting** — Login endpoint limited to 20 attempts per 15 minutes. Chat, router, and API endpoints limited to 60 requests per minute. Returns standard `Retry-After` headers.

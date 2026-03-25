@@ -81,7 +81,9 @@ export function useChat(deps: UseChatDeps) {
       - CREATIVE: Writing stories, poems, marketing copy, brainstorming, humor, or any open-ended creative task.
       - VISION: ONLY when the user has attached an image and wants it analyzed, described, or interpreted. Requires Has Attachments = true with an image.
       - DOCUMENT: ONLY when the user has attached a document (PDF, text file) and wants it summarized, analyzed, or queried. Requires Has Attachments = true.
-      - GENERAL: Simple factual questions, casual conversation, greetings, or anything that doesn't clearly fit the above categories.
+      - FAST: Very simple questions, greetings, one-word answers, or trivial tasks that need minimal processing. Use when speed matters more than depth.
+      - SECURITY: Security analysis, vulnerability assessment, threat modeling, CTF challenges, penetration testing, malware analysis, or cybersecurity topics.
+      - GENERAL: Simple factual questions, casual conversation, or anything that doesn't clearly fit the above categories.
 
       Configured Categories and Models:
       ${categoriesPrompt}
@@ -90,6 +92,8 @@ export function useChat(deps: UseChatDeps) {
       - Only select VISION or DOCUMENT if Has Attachments is true.
       - Prefer REASONING over GENERAL for questions that require explanation, comparison, or analysis.
       - Prefer CODING over GENERAL for anything code-related, even if the question is simple.
+      - Prefer SECURITY over GENERAL for anything security/hacking/CTF related.
+      - Use FAST for trivial one-liner responses (greetings, yes/no, simple lookups) when the FAST category has models assigned.
       - Only use categories that appear in the configured list above.
 
       Return ONLY a JSON object with the following structure:

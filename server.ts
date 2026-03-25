@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import log from "./logger.js";
-import { initDb, readConfig, writeConfig, listConversations, createConv, updateConv, deleteConv, close as closeDb } from "./db.js";
+import { initDb, readConfig, writeConfig, listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv, close as closeDb } from "./db.js";
 import { validate, loginSchema, configSchema, routerSchema, chatSchema, createConversationSchema, updateConversationSchema } from "./validation.js";
 
 dotenv.config();
@@ -73,6 +73,14 @@ const DEFAULT_CONFIG = {
     DOCUMENT: {
       models: [],
       provider: 'local'
+    },
+    FAST: {
+      models: [],
+      provider: 'local'
+    },
+    SECURITY: {
+      models: [],
+      provider: 'local'
     }
   }
 };
@@ -84,6 +92,36 @@ let CLOUD_KEY = DEFAULT_CONFIG.cloudKey;
 
 // Tracks which base URLs are confirmed Ollama instances (detected via /api/tags during health check)
 const ollamaUrls = new Set<string>();
+
+// Router result cache — keyed by prompt hash, stores routing decisions with TTL
+const ROUTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const ROUTER_CACHE_MAX = 100;
+const routerCache = new Map<string, { decision: any; timestamp: number }>();
+
+function getRouterCacheKey(prompt: string): string {
+  return crypto.createHash('sha256').update(prompt).digest('hex').slice(0, 16);
+}
+
+function getCachedRoute(prompt: string): any | null {
+  const key = getRouterCacheKey(prompt);
+  const entry = routerCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > ROUTER_CACHE_TTL) {
+    routerCache.delete(key);
+    return null;
+  }
+  return entry.decision;
+}
+
+function setCachedRoute(prompt: string, decision: any): void {
+  const key = getRouterCacheKey(prompt);
+  // Evict oldest if at capacity
+  if (routerCache.size >= ROUTER_CACHE_MAX && !routerCache.has(key)) {
+    const oldest = routerCache.keys().next().value;
+    if (oldest) routerCache.delete(oldest);
+  }
+  routerCache.set(key, { decision, timestamp: Date.now() });
+}
 
 // SSRF protection: validate URLs before storing or fetching
 const BLOCKED_HOSTS = [
@@ -513,6 +551,15 @@ async function startServer() {
     const { prompt } = req.body;
     try {
       const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+
+      // Check cache if enabled
+      if (config.routerCacheEnabled) {
+        const cached = getCachedRoute(prompt);
+        if (cached) {
+          log.info({ category: cached.category, model: cached.model }, 'Router cache hit');
+          return res.json({ ...cached, cached: true });
+        }
+      }
       const { router } = config;
 
       // Determine URL and Key for routing
@@ -599,6 +646,9 @@ async function startServer() {
             };
           }
 
+          if (config.routerCacheEnabled) {
+            setCachedRoute(prompt, parsed);
+          }
           res.json(parsed);
         } catch (parseErr) {
           log.error({ content }, 'Router returned invalid JSON');
@@ -925,10 +975,31 @@ async function startServer() {
   // Conversations Endpoints
   app.get("/api/conversations", authMiddleware, async (req, res) => {
     try {
-      res.json(listConversations());
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      // If no pagination params, return legacy full list for backwards compat
+      if (!req.query.limit && !req.query.offset) {
+        return res.json(listConversations());
+      }
+
+      const result = listConversationsPaginated(limit, offset);
+      res.json(result);
     } catch (error: any) {
       log.error({ err: error }, 'Error fetching conversations');
       res.status(500).json({ error: "Failed to fetch conversations" });
+    }
+  });
+
+  // Single conversation with full messages
+  app.get("/api/conversations/:id", authMiddleware, async (req, res) => {
+    try {
+      const conv = getConversation(req.params.id);
+      if (!conv) return res.status(404).json({ error: "Conversation not found" });
+      res.json(conv);
+    } catch (error: any) {
+      log.error({ err: error }, 'Error fetching conversation');
+      res.status(500).json({ error: "Failed to fetch conversation" });
     }
   });
 

@@ -7,6 +7,8 @@ import {
   Terminal,
   FileText,
   Cpu,
+  Zap,
+  ShieldCheck,
 } from 'lucide-react';
 import type { NexusConfig } from './types';
 
@@ -20,6 +22,8 @@ export const CATEGORY_CONFIG: Record<string, { icon: React.ReactNode; color: str
   VISION: { icon: <ImageIcon className="w-4 h-4" />, color: 'text-emerald-400' },
   GENERAL: { icon: <Terminal className="w-4 h-4" />, color: 'text-zinc-400' },
   DOCUMENT: { icon: <FileText className="w-4 h-4" />, color: 'text-cyan-400' },
+  FAST: { icon: <Zap className="w-4 h-4" />, color: 'text-yellow-400' },
+  SECURITY: { icon: <ShieldCheck className="w-4 h-4" />, color: 'text-red-400' },
 };
 
 export const CATEGORY_REASONING: Record<string, string> = {
@@ -29,6 +33,8 @@ export const CATEGORY_REASONING: Record<string, string> = {
   VISION: "Activated when images are attached or visual descriptions are requested. Routes to multimodal-capable local or cloud endpoints.",
   GENERAL: "The default fallback for conversational queries, facts, and simple tasks. Optimized for low latency and high throughput.",
   DOCUMENT: "Specialized for analyzing long-form text, PDFs, or structured data files. Prefers models optimized for retrieval-augmented generation (RAG).",
+  FAST: "Quick responses for simple questions, greetings, or trivial tasks. Routes to the smallest, fastest model available for minimal latency.",
+  SECURITY: "Security analysis, vulnerability assessment, threat modeling, CTF challenges, penetration testing guidance, and cybersecurity best practices.",
 };
 
 export const DEFAULT_CONFIG: NexusConfig = {
@@ -49,6 +55,8 @@ export const DEFAULT_CONFIG: NexusConfig = {
     VISION: { models: [], provider: 'local' as 'local' | 'cloud' },
     GENERAL: { models: [], provider: 'local' as 'local' | 'cloud' },
     DOCUMENT: { models: [], provider: 'local' as 'local' | 'cloud' },
+    FAST: { models: [], provider: 'local' as 'local' | 'cloud' },
+    SECURITY: { models: [], provider: 'local' as 'local' | 'cloud' },
   }
 };
 
