@@ -28,10 +28,7 @@ ENV ROUTER_URL=
 # Copy built assets from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/server.ts ./
-COPY --from=builder /app/logger.ts ./
-COPY --from=builder /app/crypto.ts ./
-COPY --from=builder /app/db.ts ./
+COPY --from=builder /app/*.ts ./
 
 # Install only production dependencies (includes better-sqlite3 native addon)
 COPY --from=builder /app/node_modules ./node_modules

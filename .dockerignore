@@ -11,6 +11,8 @@ architecture.html
 *.md
 data
 config.json
+conversations.json
+*.migrated
 screenshots
 img
 LICENSE

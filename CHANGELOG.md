@@ -1,5 +1,10 @@
 # Changelog
 
+### v1.0.7
+- **Dockerfile fix** — Root-level TypeScript files now copied with `*.ts` glob instead of individual filenames. Prevents missing module errors when new backend files are added.
+- **Documentation** — Added Configuration Guide to README covering Local Provider, Cloud Provider, Intent Router, Discovered Models, and Category Mappings with usage instructions and a category reference table.
+- **Ignore files** — Added `conversations.json` and `*.migrated` to both `.gitignore` and `.dockerignore`.
+
 ### v1.0.6
 - **Conversation pagination** — Sidebar now loads conversations in pages of 50 with a "Load More" button. Messages are fetched on demand when you select a conversation, instead of loading everything upfront. New `GET /api/conversations?limit=50&offset=0` returns metadata only; `GET /api/conversations/:id` returns full messages.
 - **Router result caching** — Identical routing prompts return cached results for 5 minutes (in-memory LRU, max 100 entries). **Off by default** — enable via the toggle in the System tab. Useful for saving API calls when using a paid cloud router.

@@ -11,6 +11,8 @@ coverage/
 # Runtime data (user-specific, generated at runtime)
 data/
 config.json
+conversations.json
+*.migrated
 
 # Environment & secrets
 .env*

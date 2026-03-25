@@ -120,6 +120,93 @@ Then set `LOCAL_URL` to the tunnel address.
 
 ---
 
+## Configuration Guide
+
+### Local Model / API Provider
+
+This is your local LLM backend — usually Ollama running on your home server or PC.
+
+- **Provider URL** — The address Nexus uses to reach your local models. For Ollama this is typically `http://192.168.1.x:11434`. Don't use `localhost` — inside Docker that refers to the container itself, not your machine.
+- **API Key** — Leave blank for Ollama. Only needed if your local provider requires authentication (e.g. Open WebUI with auth enabled).
+
+Nexus auto-detects Ollama and switches to its native `/api/chat` endpoint automatically.
+
+---
+
+### Cloud Model / API Provider
+
+An optional OpenAI-compatible cloud API for heavier tasks or models you don't run locally.
+
+- **Provider URL** — The base URL of your cloud provider (e.g. `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`).
+- **API Key** — Your API key for that provider.
+
+If you leave this blank, the CLOUD provider option in Category Mappings will show a warning and fall back to local.
+
+---
+
+### Intent Router (Orchestrator)
+
+The router is a small model that reads each prompt and decides which category and model should handle it. It runs before every chat message.
+
+- **Model** — The model used for routing. A small fast model works well here — you don't need a large model, just one that can return clean JSON. Good options: `gemma3:4b`, `qwen2.5:3b`, `gpt-4.1-mini`.
+- **Router URL** — Leave blank to use your Local Provider. Set a custom URL if you want to use a different endpoint just for routing (e.g. a paid cloud router while keeping chat local).
+- **Router Key** — API key for the router endpoint if required.
+
+The router model must be capable of returning valid JSON. If it wraps its response in markdown code blocks that's fine — Nexus strips them automatically.
+
+---
+
+### Discovered Models
+
+This section shows all models Nexus finds at your Local Provider URL. Nexus queries your provider on the Models tab and lists everything available. Click any model to add it to a category pool.
+
+If your models aren't showing up, check that your Local Provider URL is correct and the connection shows as **Online** in the header.
+
+---
+
+### Category Mappings
+
+Categories are how Nexus decides which model handles which type of request. Each category has a **model pool** and a **provider** (Local or Cloud).
+
+| Category | When it's used |
+|----------|---------------|
+| GENERAL | Everyday questions, conversation, simple lookups |
+| CODING | Code writing, debugging, explaining code |
+| REASONING | Math, analysis, multi-step logic, comparisons |
+| CREATIVE | Stories, poems, brainstorming, marketing copy |
+| VISION | When an image is attached to the message |
+| DOCUMENT | When a document (PDF, text file) is attached |
+| FAST | Simple one-liner responses where speed matters |
+| SECURITY | Security analysis, CTF, pentesting, vulnerability research |
+
+**How to set up a category:**
+1. Go to the **Models** tab
+2. Find the category you want to configure
+3. Set the provider to **Local** or **Cloud**
+4. Click models from the Discovered Models list to add them to the pool, or type a custom model name
+5. The first model in the pool is used by default. If it fails, Nexus automatically tries the next one.
+
+You can add custom categories using the input at the bottom of the Models tab.
+
+---
+
+## System Settings
+
+### Router Result Caching
+
+By default, every prompt makes a fresh call to the router model for intent classification. If you're using a **paid cloud router** (OpenAI, OpenRouter, etc.), you can enable caching to avoid redundant API calls.
+
+**How to enable:**
+1. Go to the **System** tab
+2. Toggle **Router Result Caching** on
+
+When enabled, identical routing prompts reuse the cached decision for 5 minutes. After that the cache expires and the router model is called again. The cache is in-memory only and clears on server restart.
+
+**When to use it:** Paid cloud routers where each call costs money.
+**When to skip it:** Local routers (Ollama) where the call is fast and free.
+
+---
+
 ## Building from Source
 
 ```bash
