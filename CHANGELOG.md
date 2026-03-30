@@ -1,6 +1,19 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.0
+- **Multi-user support** — Nexus now supports multiple users with per-user isolation. Each user gets their own provider config, category mappings, conversations, and projects — completely independent from other users.
+  - **Username/password authentication** — Replaced single API key login with username + password. The first admin account is auto-created from `ADMIN_API_KEY` on startup (username: `admin`, password: your existing key). Existing data is migrated to the admin user seamlessly.
+  - **User registration** — Admins can toggle public registration from the System tab. New users inherit the admin's config as a starting point and can customize everything independently.
+  - **Admin user management** — System tab shows a User Management panel (admin only) to create users, reset passwords, delete accounts, and toggle public registration.
+  - **Per-user config** — Each user has their own provider URLs, API keys, router model, and category-to-model mappings. One user can run local-only Ollama while another uses OpenAI — no interference.
+  - **Session-based auth** — Secure random session tokens stored in httpOnly cookies replace the old raw API key cookie. Sessions are invalidated on password change.
+  - **User menu** — Header shows logged-in username with a dropdown for Change Password and Sign Out.
+  - **Change password** — All users can change their own password from the header menu.
+  - **Data isolation** — Conversations, projects, and config are scoped by user ID. No cross-user data access.
+  - **Router cache scoped** — Router result cache is now keyed by user + prompt, preventing cache cross-contamination.
+  - **Backward compatible** — Existing single-user installs upgrade automatically. The admin user inherits all existing conversations, projects, and config.
+
 ### v1.0.9
 - **Bug fixes** — Three correctness fixes with no user-facing config changes required:
   - **Streaming chunk buffer** — SSE stream parsing on both server and client now carries a leftover buffer across `read()` calls. Previously a JSON object split across two network reads would be silently discarded, dropping tokens and usage data mid-response.

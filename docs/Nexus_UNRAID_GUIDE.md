@@ -23,7 +23,7 @@ Run Nexus Orchestrator on Unraid using Docker. This guide covers installation, c
 - [Ollama](https://ollama.com) running on your network (local machine, NAS, or another server) with at least one model pulled
 - The Ollama host IP — **do not use `localhost`** inside Docker containers
 
-> **Tested on:** Unraid 6.12+ · Nexus Orchestrator 1.0.9 · Ollama 0.6+
+> **Tested on:** Unraid 6.12+ · Nexus Orchestrator 1.1.0 · Ollama 0.6+
 
 ---
 
@@ -71,7 +71,7 @@ This is where your database, config, and conversation history are stored. All da
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ADMIN_API_KEY` | ✅ Yes | — | Password for the web UI and API. Set a strong value. |
+| `ADMIN_API_KEY` | ✅ Yes | — | Password for the admin account (username: `admin`). On first run, an admin user is auto-created with this password. |
 | `ENCRYPTION_SECRET` | Recommended | *(derived from ADMIN_API_KEY)* | Separate secret for encrypting stored data. Set a unique value in production. |
 | `LOCAL_URL` | ✅ Yes | `http://localhost:11434` | Base URL of your Ollama (or local OpenAI-compatible) provider. Use the LAN IP — not `localhost`. Example: `http://192.168.1.50:11434` |
 | `LOCAL_KEY` | No | *(empty)* | API key for local provider. Leave blank for standard Ollama. |
@@ -119,7 +119,7 @@ A successful startup looks like:
 {"level":"info","msg":"Nexus Orchestrator listening on port 3000"}
 ```
 
-Open `http://[unraid-ip]:3000` in your browser and log in with your `ADMIN_API_KEY`.
+Open `http://[unraid-ip]:3000` in your browser and log in with username `admin` and your `ADMIN_API_KEY` as the password.
 
 ---
 
@@ -206,6 +206,23 @@ By default, every message makes a fresh call to the router model. If you're usin
 2. Toggle **Router Result Caching** on
 
 Identical prompts reuse the cached decision for 5 minutes. The cache is in-memory and clears on container restart.
+
+### Adding users
+
+Nexus supports multiple users, each with their own provider config, conversations, and projects.
+
+**As admin:**
+1. Go to the **System** tab
+2. In the **User Management** section, click **Add User**
+3. Enter a username, password, and role (user or admin)
+4. The new user inherits your current config as their starting defaults
+
+**Or enable self-registration:**
+1. In User Management, toggle **Public Registration** on
+2. New users will see a "Register" link on the login screen
+3. They create their own account and get a copy of the admin's config to start with
+
+Each user can independently configure their own providers, models, and categories from the Models tab.
 
 ### Exporting data
 

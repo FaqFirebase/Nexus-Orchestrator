@@ -10,8 +10,9 @@ Nexus is more than a chat interface — it's an **orchestration layer** for your
 
 ### Key Features
 
-- **Intelligent Intent Routing** — A small router model classifies each prompt (CODING, REASONING, CREATIVE, VISION, DOCUMENT, GENERAL) and selects the right model automatically.
+- **Intelligent Intent Routing** — A small router model classifies each prompt (CODING, REASONING, CREATIVE, VISION, DOCUMENT, GENERAL, FAST, SECURITY) and selects the right model automatically.
 - **Hybrid Orchestration** — Mix local and cloud models per category. Switch seamlessly without changing your workflow.
+- **Multi-User Support** — Multiple users with per-user provider config, category mappings, conversations, and projects. Admin manages users from the System tab.
 - **Vision & Document Support** — Upload images and documents directly in the chat. Vision models receive them in the correct format automatically.
 - **Privacy First** — Point the router at a local Ollama model and your prompts never leave your network.
 - **Structured Logging** — JSON logs in production (pino), pretty-printed in dev. Control verbosity with `LOG_LEVEL`.
@@ -44,7 +45,7 @@ docker run -d \
   pikkonmg/nexus-orchestrator
 ```
 
-Then open `http://localhost:3000` and log in with your `ADMIN_API_KEY`.
+Then open `http://localhost:3000` and log in with username `admin` and your `ADMIN_API_KEY` as the password.
 
 ### Docker Compose
 
@@ -77,7 +78,7 @@ services:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ADMIN_API_KEY` | *(required)* | Password for the web UI and API |
+| `ADMIN_API_KEY` | *(required)* | Password for the admin account (username: `admin`). On first run, an admin user is auto-created with this password |
 | `ENCRYPTION_SECRET` | *(derived from ADMIN_API_KEY)* | Separate secret for encrypting data at rest. Recommended for production |
 | `LOCAL_URL` | `http://localhost:11434` | Your Ollama or local provider base URL |
 | `LOCAL_KEY` | *(empty)* | API key for local provider (if required) |
@@ -238,9 +239,10 @@ docker build -t nexus-orchestrator:latest .
 - ✅ Model fallback — Auto-fallback to next model in category pool when selected model is unavailable (v1.0.4)
 - ✅ Conversation pagination — Paginated API + lazy-loading sidebar with "Load More", messages fetched on demand (v1.0.6)
 - ✅ Router result caching — In-memory LRU cache with 5-minute TTL, off by default, toggle in System tab (v1.0.6)
-- [ ] Multi-user support — JWT auth + user isolation instead of single shared admin key
+- ✅ Multi-user support — Per-user accounts with isolated config, conversations, and projects (v1.1.0)
 - ✅ Error boundaries — React error boundaries to prevent full UI crashes (v1.0.8)
 - ✅ Projects — Organize conversations into named project folders; collapse/expand, right-click to assign, delete project with option to keep or remove chats (v1.0.8)
+- [ ] Multiple local providers — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously; model discovery aggregates across all providers; routing targets the correct endpoint per model
 - [ ] Request queuing — Job queue for multiple concurrent long-running streams
 - ✅ Stop generation — Cancel button aborts in-flight SSE stream, resets loading state (v1.0.1)
   > **Known limitation:** The UI stops immediately, but Ollama will continue generating in the background until the current response completes. This is a Docker networking constraint — TCP disconnect does not propagate to the Ollama llama runner. Cloud providers (OpenAI, Gemini, etc.) are unaffected.Looking for a fix

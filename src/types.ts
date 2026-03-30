@@ -69,6 +69,13 @@ export interface NexusConfig {
   routerCacheEnabled?: boolean;
 }
 
+export interface User {
+  id: string;
+  username: string;
+  role: 'admin' | 'user';
+  createdAt: string;
+}
+
 export interface ConnectionStatus {
   status: 'checking' | 'connected' | 'disconnected' | 'error';
   local?: string;

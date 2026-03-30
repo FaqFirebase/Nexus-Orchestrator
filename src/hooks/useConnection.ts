@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { ConnectionStatus, NexusConfig } from '../types';
+import type { ConnectionStatus, NexusConfig, User } from '../types';
 import { DEFAULT_CONFIG } from '../constants';
 
 interface UseConnectionDeps {
@@ -8,10 +8,12 @@ interface UseConnectionDeps {
   setIsAuthorized: (v: boolean) => void;
   setShowLoginModal: (v: boolean) => void;
   setConfig: (cfg: NexusConfig) => void;
+  setUser: (u: User | null) => void;
+  setRegistrationEnabled: (v: boolean) => void;
 }
 
 export function useConnection(deps: UseConnectionDeps) {
-  const { showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig } = deps;
+  const { showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig, setUser, setRegistrationEnabled } = deps;
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: 'checking' });
   const [localModels, setLocalModels] = useState<any[]>([]);
@@ -23,18 +25,26 @@ export function useConnection(deps: UseConnectionDeps) {
       const authStatusRes = await fetch(`${window.location.origin}/api/auth/status`);
       const authStatus = await authStatusRes.json();
       setAuthRequired(authStatus.authRequired);
+      setRegistrationEnabled(authStatus.registrationEnabled || false);
 
       // If already authenticated via cookie, the server tells us
       if (authStatus.authRequired && !authStatus.isAuthenticated) {
         setIsAuthorized(false);
+        setUser(null);
         if (!showLoginModal) setShowLoginModal(true);
         return;
+      }
+
+      // Set user info from auth status
+      if (authStatus.user) {
+        setUser(authStatus.user);
       }
 
       const res = await fetch(`${window.location.origin}/api/health`);
 
       if (res.status === 401) {
         setIsAuthorized(false);
+        setUser(null);
         if (!showLoginModal) setShowLoginModal(true);
         return;
       }
@@ -72,7 +82,7 @@ export function useConnection(deps: UseConnectionDeps) {
     } catch (err) {
       setConnectionStatus({ status: 'error', message: 'Failed to reach proxy' });
     }
-  }, [showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig]);
+  }, [showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig, setUser, setRegistrationEnabled]);
 
   const runPing = useCallback(async () => {
     setIsPinging(true);

@@ -9,15 +9,15 @@ import {
 } from '../validation.js';
 
 describe('loginSchema', () => {
-  it('accepts valid key', () => {
-    expect(loginSchema.safeParse({ key: 'my-secret' }).success).toBe(true);
+  it('accepts valid credentials', () => {
+    expect(loginSchema.safeParse({ username: 'admin', password: 'my-secret' }).success).toBe(true);
   });
 
-  it('rejects empty key', () => {
-    expect(loginSchema.safeParse({ key: '' }).success).toBe(false);
+  it('rejects empty username', () => {
+    expect(loginSchema.safeParse({ username: '', password: 'secret' }).success).toBe(false);
   });
 
-  it('rejects missing key', () => {
+  it('rejects missing fields', () => {
     expect(loginSchema.safeParse({}).success).toBe(false);
   });
 });

@@ -5,8 +5,21 @@ import dotenv from "dotenv";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import log from "./logger.js";
-import { initDb, readConfig, writeConfig, listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv, listProjects, createProject, updateProject, deleteProject, assignConversation, close as closeDb } from "./db.js";
-import { validate, loginSchema, configSchema, routerSchema, chatSchema, createConversationSchema, updateConversationSchema, createProjectSchema, updateProjectSchema, assignConversationSchema } from "./validation.js";
+import {
+  initDb, readConfig, writeConfig, readUserConfig, writeUserConfig,
+  listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv,
+  listProjects, createProject, updateProject, deleteProject, assignConversation,
+  bootstrapAdmin, createUser, getUserByUsername, getUserById, listUsers, updateUserPassword, deleteUser, getUserCount,
+  getAdminSettings, updateAdminSettings,
+  close as closeDb
+} from "./db.js";
+import { hashPassword, verifyPassword } from "./crypto.js";
+import {
+  validate, loginSchema, registerSchema, changePasswordSchema, adminCreateUserSchema, adminResetPasswordSchema,
+  configSchema, routerSchema, chatSchema,
+  createConversationSchema, updateConversationSchema,
+  createProjectSchema, updateProjectSchema, assignConversationSchema
+} from "./validation.js";
 
 dotenv.config();
 
@@ -32,9 +45,34 @@ function parseCookies(header: string | undefined): Record<string, string> {
   );
 }
 
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+// Session management — maps session tokens to user IDs
+const sessions = new Map<string, { userId: string; expiresAt: number }>();
+const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function createSession(userId: string): string {
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, { userId, expiresAt: Date.now() + SESSION_MAX_AGE });
+  return token;
+}
+
+function getSession(token: string): { userId: string } | null {
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (Date.now() > session.expiresAt) {
+    sessions.delete(token);
+    return null;
+  }
+  return { userId: session.userId };
+}
+
+function deleteSession(token: string): void {
+  sessions.delete(token);
+}
+
+function deleteUserSessions(userId: string): void {
+  for (const [token, session] of sessions.entries()) {
+    if (session.userId === userId) sessions.delete(token);
+  }
 }
 
 // Default configuration
@@ -85,25 +123,20 @@ const DEFAULT_CONFIG = {
   }
 };
 
-let LOCAL_URL = DEFAULT_CONFIG.localUrl;
-let LOCAL_KEY = DEFAULT_CONFIG.localKey;
-let CLOUD_URL = DEFAULT_CONFIG.cloudUrl;
-let CLOUD_KEY = DEFAULT_CONFIG.cloudKey;
-
 // Tracks which base URLs are confirmed Ollama instances (detected via /api/tags during health check)
 const ollamaUrls = new Set<string>();
 
-// Router result cache — keyed by prompt hash, stores routing decisions with TTL
+// Router result cache — keyed by userId + prompt hash, stores routing decisions with TTL
 const ROUTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ROUTER_CACHE_MAX = 100;
 const routerCache = new Map<string, { decision: any; timestamp: number }>();
 
-function getRouterCacheKey(prompt: string): string {
-  return crypto.createHash('sha256').update(prompt).digest('hex').slice(0, 16);
+function getRouterCacheKey(userId: string, prompt: string): string {
+  return userId + ':' + crypto.createHash('sha256').update(prompt).digest('hex').slice(0, 16);
 }
 
-function getCachedRoute(prompt: string): any | null {
-  const key = getRouterCacheKey(prompt);
+function getCachedRoute(userId: string, prompt: string): any | null {
+  const key = getRouterCacheKey(userId, prompt);
   const entry = routerCache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.timestamp > ROUTER_CACHE_TTL) {
@@ -113,8 +146,8 @@ function getCachedRoute(prompt: string): any | null {
   return entry.decision;
 }
 
-function setCachedRoute(prompt: string, decision: any): void {
-  const key = getRouterCacheKey(prompt);
+function setCachedRoute(userId: string, prompt: string, decision: any): void {
+  const key = getRouterCacheKey(userId, prompt);
   // Evict oldest if at capacity
   if (routerCache.size >= ROUTER_CACHE_MAX && !routerCache.has(key)) {
     const oldest = routerCache.keys().next().value;
@@ -154,30 +187,12 @@ function validateUrl(url: string): { valid: boolean; reason?: string } {
   }
 }
 
-function updateGlobalVars(config: any) {
-  if (config.localUrl) {
-    LOCAL_URL = config.localUrl;
-    if (!LOCAL_URL.startsWith('http')) LOCAL_URL = `http://${LOCAL_URL}`;
-    LOCAL_URL = LOCAL_URL.replace(/\/$/, "");
-  }
-  if (config.localKey !== undefined) LOCAL_KEY = config.localKey;
-  if (config.cloudUrl) {
-    CLOUD_URL = config.cloudUrl;
-    CLOUD_URL = CLOUD_URL.replace(/\/$/, "");
-  }
-  if (config.cloudKey !== undefined) CLOUD_KEY = config.cloudKey;
-  
-  log.info({ localUrl: LOCAL_URL, cloudUrl: CLOUD_URL }, 'Configuration updated');
-}
-
 // Helper to mask API keys
 function maskKey(key: string | undefined): string {
   if (!key) return "";
   if (key.length <= 8) return "****";
   return `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
 }
-
-// Encryption functions moved to crypto.ts, storage moved to db.ts
 
 // Rate limiters
 const authLimiter = rateLimit({
@@ -196,7 +211,17 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Middleware to protect admin endpoints
+// Extend Express Request to include userId and userRole
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+      userRole?: 'admin' | 'user';
+    }
+  }
+}
+
+// Middleware to protect endpoints — resolves session to userId
 const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!ADMIN_API_KEY) {
     return res.status(403).json({
@@ -204,16 +229,47 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
     });
   }
 
-  // Check httpOnly cookie first, then fall back to header (for API clients)
   const cookies = parseCookies(req.headers.cookie);
-  const providedKey = cookies['nexus_session'] || (req.headers['x-admin-key'] as string);
+  const sessionToken = cookies['nexus_session'];
 
-  if (providedKey && safeEqual(providedKey, ADMIN_API_KEY)) {
-    return next();
+  if (sessionToken) {
+    const session = getSession(sessionToken);
+    if (session) {
+      const user = getUserById(session.userId);
+      if (user) {
+        req.userId = user.id;
+        req.userRole = user.role;
+        return next();
+      }
+    }
   }
 
-  res.status(401).json({ error: "Unauthorized: Admin API Key required" });
+  // Fallback: x-admin-key header for API clients — look up admin user
+  const headerKey = req.headers['x-admin-key'] as string;
+  if (headerKey) {
+    const adminUser = getUserByUsername('admin');
+    if (adminUser && verifyPassword(headerKey, adminUser.passwordHash)) {
+      req.userId = adminUser.id;
+      req.userRole = adminUser.role;
+      return next();
+    }
+  }
+
+  res.status(401).json({ error: "Unauthorized: Valid session required" });
 };
+
+// Admin-only middleware — must be used after authMiddleware
+const adminMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.userRole !== 'admin') {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+};
+
+// Helper to get the user's config, falling back to defaults
+function getUserConfig(userId: string): any {
+  return readUserConfig(userId, ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+}
 
 // Config and conversations init/migration handled by db.ts initDb()
 
@@ -230,7 +286,7 @@ async function startServer() {
     // Allow requests with no origin (same-origin, curl, etc.) or matching origin
     if (!origin || origin === `http://${host}` || origin === `https://${host}`) {
       res.setHeader('Access-Control-Allow-Origin', origin || '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-admin-key');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
@@ -239,54 +295,206 @@ async function startServer() {
   });
 
   const initialConfig = await initDb(ENCRYPTION_SECRET, DEFAULT_CONFIG);
-  updateGlobalVars(initialConfig);
+
+  // Bootstrap admin user from ADMIN_API_KEY if no users exist
+  if (ADMIN_API_KEY) {
+    bootstrapAdmin(ADMIN_API_KEY, ENCRYPTION_SECRET, DEFAULT_CONFIG);
+  }
 
   // Clean shutdown
   process.on('SIGTERM', () => { closeDb(); process.exit(0); });
   process.on('SIGINT', () => { closeDb(); process.exit(0); });
 
-  // Auth status — only reveals if auth is required, not implementation details
-  app.get("/api/auth/status", (req, res) => {
-    // Check if already authenticated via cookie
-    const cookies = parseCookies(req.headers.cookie);
-    const sessionKey = cookies['nexus_session'];
-    const isAuthenticated = !!(sessionKey && ADMIN_API_KEY && safeEqual(sessionKey, ADMIN_API_KEY));
+  // ─── Auth Endpoints ───
 
+  app.get("/api/auth/status", (req, res) => {
+    const cookies = parseCookies(req.headers.cookie);
+    const sessionToken = cookies['nexus_session'];
+    let isAuthenticated = false;
+    let user = null;
+
+    if (sessionToken) {
+      const session = getSession(sessionToken);
+      if (session) {
+        const dbUser = getUserById(session.userId);
+        if (dbUser) {
+          isAuthenticated = true;
+          user = { id: dbUser.id, username: dbUser.username, role: dbUser.role };
+        }
+      }
+    }
+
+    const settings = getAdminSettings();
     res.json({
       authRequired: !!ADMIN_API_KEY,
       isAuthenticated,
+      user,
+      registrationEnabled: settings.registrationEnabled || false,
     });
   });
 
-  // Login — validate key, set httpOnly cookie
   app.post("/api/auth/login", authLimiter, validate(loginSchema), (req, res) => {
-    const { key } = req.body;
-    if (!key || !ADMIN_API_KEY) {
-      return res.status(401).json({ error: "Invalid credentials" });
+    const { username, password } = req.body;
+
+    const user = getUserByUsername(username);
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      return res.status(401).json({ error: "Invalid username or password" });
     }
-    if (!safeEqual(key, ADMIN_API_KEY)) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-    res.cookie('nexus_session', key, {
+
+    const token = createSession(user.id);
+    res.cookie('nexus_session', token, {
       httpOnly: true,
       sameSite: 'strict',
       secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
       path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: SESSION_MAX_AGE,
     });
-    res.json({ success: true });
+    res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
   });
 
-  // Logout — clear session cookie
+  app.post("/api/auth/register", authLimiter, validate(registerSchema), (req, res) => {
+    const settings = getAdminSettings();
+    if (!settings.registrationEnabled) {
+      return res.status(403).json({ error: "Registration is disabled. Contact an admin." });
+    }
+
+    const { username, password } = req.body;
+
+    // Check if username already exists
+    const existing = getUserByUsername(username);
+    if (existing) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
+
+    const passwordHash = hashPassword(password);
+    const user = createUser(username, passwordHash, 'user');
+
+    // Copy admin's config as the new user's default
+    const adminUser = getUserByUsername('admin');
+    if (adminUser) {
+      const adminConfig = readUserConfig(adminUser.id, ENCRYPTION_SECRET);
+      if (adminConfig) {
+        writeUserConfig(user.id, adminConfig, ENCRYPTION_SECRET);
+      } else {
+        writeUserConfig(user.id, DEFAULT_CONFIG, ENCRYPTION_SECRET);
+      }
+    } else {
+      writeUserConfig(user.id, DEFAULT_CONFIG, ENCRYPTION_SECRET);
+    }
+
+    // Auto-login after registration
+    const token = createSession(user.id);
+    res.cookie('nexus_session', token, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      path: '/',
+      maxAge: SESSION_MAX_AGE,
+    });
+    res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
+  });
+
   app.post("/api/auth/logout", (req, res) => {
+    const cookies = parseCookies(req.headers.cookie);
+    const sessionToken = cookies['nexus_session'];
+    if (sessionToken) deleteSession(sessionToken);
     res.clearCookie('nexus_session', { path: '/' });
     res.json({ success: true });
   });
 
-  // Config endpoints
+  app.put("/api/auth/password", authMiddleware, validate(changePasswordSchema), (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    const user = getUserById(req.userId!);
+    if (!user || !verifyPassword(currentPassword, user.passwordHash)) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+    const newHash = hashPassword(newPassword);
+    updateUserPassword(user.id, newHash);
+    // Invalidate all sessions for this user
+    deleteUserSessions(user.id);
+    // Create a new session for the current request
+    const token = createSession(user.id);
+    res.cookie('nexus_session', token, {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      path: '/',
+      maxAge: SESSION_MAX_AGE,
+    });
+    res.json({ success: true });
+  });
+
+  // ─── Admin Endpoints ───
+
+  app.get("/api/admin/users", authMiddleware, adminMiddleware, (_req, res) => {
+    res.json(listUsers());
+  });
+
+  app.post("/api/admin/users", authMiddleware, adminMiddleware, validate(adminCreateUserSchema), (req, res) => {
+    const { username, password, role } = req.body;
+
+    const existing = getUserByUsername(username);
+    if (existing) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
+
+    const passwordHash = hashPassword(password);
+    const user = createUser(username, passwordHash, role);
+
+    // Copy admin's config as new user's default
+    const adminConfig = readUserConfig(req.userId!, ENCRYPTION_SECRET);
+    if (adminConfig) {
+      writeUserConfig(user.id, adminConfig, ENCRYPTION_SECRET);
+    } else {
+      writeUserConfig(user.id, DEFAULT_CONFIG, ENCRYPTION_SECRET);
+    }
+
+    res.json(user);
+  });
+
+  app.delete("/api/admin/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+    const targetId = req.params.id;
+    if (targetId === req.userId) {
+      return res.status(400).json({ error: "Cannot delete your own account" });
+    }
+    const target = getUserById(targetId);
+    if (!target) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    deleteUserSessions(targetId);
+    deleteUser(targetId);
+    res.json({ success: true });
+  });
+
+  app.put("/api/admin/users/:id/reset", authMiddleware, adminMiddleware, validate(adminResetPasswordSchema), (req, res) => {
+    const targetId = req.params.id;
+    const target = getUserById(targetId);
+    if (!target) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const { password } = req.body;
+    const newHash = hashPassword(password);
+    updateUserPassword(targetId, newHash);
+    deleteUserSessions(targetId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/admin/settings", authMiddleware, adminMiddleware, (_req, res) => {
+    res.json(getAdminSettings());
+  });
+
+  app.put("/api/admin/settings", authMiddleware, adminMiddleware, (req, res) => {
+    const current = getAdminSettings();
+    const updated = { ...current, ...req.body };
+    updateAdminSettings(updated);
+    res.json(updated);
+  });
+
+  // ─── Config Endpoints (per-user) ───
+
   app.get("/api/config", authMiddleware, async (req, res) => {
     try {
-      const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+      const config = getUserConfig(req.userId!);
 
       // Mask sensitive keys before sending to client
       const maskedConfig = {
@@ -325,10 +533,10 @@ async function startServer() {
         }
       }
 
-      log.info('Saving configuration');
+      log.info({ userId: req.userId }, 'Saving user configuration');
 
       // Read current config to preserve masked keys
-      const currentConfig = readConfig(ENCRYPTION_SECRET) || {};
+      const currentConfig = getUserConfig(req.userId!);
 
       // If the incoming key is masked, use the current key
       if (newConfig.localKey && typeof newConfig.localKey === 'string' && (newConfig.localKey.includes("...") || newConfig.localKey === "****")) {
@@ -341,13 +549,7 @@ async function startServer() {
         newConfig.router.key = currentConfig.router?.key || "";
       }
 
-      writeConfig(newConfig, ENCRYPTION_SECRET);
-
-      try {
-        updateGlobalVars(newConfig);
-      } catch (varError: any) {
-        log.warn({ err: varError }, 'Configuration saved but failed to update global variables');
-      }
+      writeUserConfig(req.userId!, newConfig, ENCRYPTION_SECRET);
 
       res.json({ status: "ok" });
     } catch (error: any) {
@@ -356,29 +558,35 @@ async function startServer() {
     }
   });
 
-  // Health check
+  // Health check (uses requesting user's config)
   app.get("/api/health", authMiddleware, async (req, res) => {
     try {
+      const config = getUserConfig(req.userId!);
+      let localUrl = config.localUrl || "http://localhost:11434";
+      if (!localUrl.startsWith('http')) localUrl = `http://${localUrl}`;
+      localUrl = localUrl.replace(/\/$/, "");
+      const localKey = config.localKey || "";
+
       // Prevent self-reference loops
       const selfPort = PORT.toString();
-      if (LOCAL_URL.includes(`localhost:${selfPort}`) || LOCAL_URL.includes(`0.0.0.0:${selfPort}`) || LOCAL_URL.includes(`127.0.0.1:${selfPort}`)) {
+      if (localUrl.includes(`localhost:${selfPort}`) || localUrl.includes(`0.0.0.0:${selfPort}`) || localUrl.includes(`127.0.0.1:${selfPort}`)) {
         return res.json({
           status: "disconnected",
-          local: LOCAL_URL,
+          local: localUrl,
           message: `⚠️ Provider URL is pointing to the Nexus Orchestrator itself (port ${selfPort}). Please update the Provider URL in the Models tab to your actual local LLM endpoint.`
         });
       }
 
-      log.debug({ url: LOCAL_URL }, 'Checking health');
+      log.debug({ url: localUrl }, 'Checking health');
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
-      
+
       const headers: any = {
         'User-Agent': 'NexusOrchestrator/1.0',
         'Accept': 'application/json'
       };
-      if (LOCAL_KEY) {
-        headers['Authorization'] = `Bearer ${LOCAL_KEY}`;
+      if (localKey) {
+        headers['Authorization'] = `Bearer ${localKey}`;
       }
 
       // Helper to construct clean API URLs
@@ -391,12 +599,12 @@ async function startServer() {
       };
 
       // Try OpenAI/Open WebUI models endpoint first
-      let response = await fetch(getApiUrl(LOCAL_URL, 'models'), { 
+      let response = await fetch(getApiUrl(localUrl, 'models'), {
         signal: controller.signal,
         headers
       }).catch(err => {
         if (err.name !== 'AbortError') {
-          log.debug({ url: LOCAL_URL, err: err.message }, 'Could not reach models endpoint');
+          log.debug({ url: localUrl, err: err.message }, 'Could not reach models endpoint');
         }
         return null;
       });
@@ -404,12 +612,12 @@ async function startServer() {
       // If that fails or 404s/405s, try Ollama's native tags endpoint
       let isOllama = false;
       if (!response || response.status === 404 || response.status === 405) {
-        response = await fetch(getApiUrl(LOCAL_URL, 'tags'), {
+        response = await fetch(getApiUrl(localUrl, 'tags'), {
           signal: controller.signal,
           headers
         }).catch(err => {
           if (err.name !== 'AbortError') {
-            log.debug({ url: LOCAL_URL, err: err.message }, 'Could not reach tags endpoint');
+            log.debug({ url: localUrl, err: err.message }, 'Could not reach tags endpoint');
           }
           return null;
         });
@@ -419,7 +627,7 @@ async function startServer() {
       clearTimeout(timeoutId);
 
       // Cache Ollama detection so chat endpoint can use native /api/chat
-      const baseKey = LOCAL_URL.replace(/\/$/, "");
+      const baseKey = localUrl.replace(/\/$/, "");
       if (isOllama) {
         ollamaUrls.add(baseKey);
       } else {
@@ -427,53 +635,61 @@ async function startServer() {
       }
 
       if (response && response.ok) {
-        res.json({ status: "connected", local: LOCAL_URL, isOllama });
+        res.json({ status: "connected", local: localUrl, isOllama });
       } else if (response) {
         const text = await response.text().catch(() => "No body");
         log.warn({ status: response.status, statusText: response.statusText, body: text }, 'Local provider health check failed');
-        
+
         let tip = "";
         if (response.status === 405) {
           tip = " \n\n💡 TIP: 'Method Not Allowed' (405) often means the URL path is incorrect. If using Open WebUI, ensure your URL ends with '/api'.";
         }
 
-        res.json({ 
-          status: "error", 
-          local: LOCAL_URL, 
-          message: `Provider returned ${response.status}: ${response.statusText}.${tip}` 
+        res.json({
+          status: "error",
+          local: localUrl,
+          message: `Provider returned ${response.status}: ${response.statusText}.${tip}`
         });
       } else {
         throw new Error("Network error or timeout. Ensure the URL is correct and the service is running.");
       }
     } catch (error: any) {
-      log.error({ url: LOCAL_URL, err: error }, 'Health check error');
-      const isLocalhost = LOCAL_URL.includes('localhost') || LOCAL_URL.includes('127.0.0.1');
-      const isLocalIp = LOCAL_URL.includes('192.168.') || LOCAL_URL.includes('10.') || LOCAL_URL.includes('172.');
-      
+      const config = getUserConfig(req.userId!);
+      const localUrl = config.localUrl || "http://localhost:11434";
+      log.error({ url: localUrl, err: error }, 'Health check error');
+      const isLocalhost = localUrl.includes('localhost') || localUrl.includes('127.0.0.1');
+      const isLocalIp = localUrl.includes('192.168.') || localUrl.includes('10.') || localUrl.includes('172.');
+
       let message = `Could not reach provider: ${error.message}`;
       if (isLocalhost) {
         message += " \n\n⚠️ CRITICAL: 'localhost' refers to the Nexus Orchestrator container itself. You must use your host's IP address (e.g., 192.168.1.x) or 'host.docker.internal' if configured.";
       } else if (isLocalIp) {
         message += " \n\n⚠️ TIP: If this app is hosted in the cloud, it cannot reach your home network directly. Use a tunnel (Ngrok/Cloudflare).";
       }
-      
-      res.json({ 
-        status: "disconnected", 
-        local: LOCAL_URL, 
+
+      res.json({
+        status: "disconnected",
+        local: localUrl,
         message
       });
     }
   });
 
-  // Get available models
+  // Get available models (uses requesting user's config)
   app.get("/api/models", authMiddleware, async (req, res) => {
     try {
-      const headers: any = { 
+      const config = getUserConfig(req.userId!);
+      let localUrl = config.localUrl || "http://localhost:11434";
+      if (!localUrl.startsWith('http')) localUrl = `http://${localUrl}`;
+      localUrl = localUrl.replace(/\/$/, "");
+      const localKey = config.localKey || "";
+
+      const headers: any = {
         'User-Agent': 'NexusOrchestrator/1.0',
         'Accept': 'application/json'
       };
-      if (LOCAL_KEY) {
-        headers['Authorization'] = `Bearer ${LOCAL_KEY}`;
+      if (localKey) {
+        headers['Authorization'] = `Bearer ${localKey}`;
       }
 
       const getApiUrl = (baseUrl: string, endpoint: string) => {
@@ -485,8 +701,8 @@ async function startServer() {
       };
 
       // Try OpenAI/Open WebUI format first
-      let response = await fetch(getApiUrl(LOCAL_URL, 'models'), { headers });
-      
+      let response = await fetch(getApiUrl(localUrl, 'models'), { headers });
+
       if (response.ok) {
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
@@ -494,11 +710,11 @@ async function startServer() {
           const models = data.data?.map((m: any) => {
             const id = m.id || '';
             const details: any = { family: m.owned_by || 'openai' };
-            
+
             // Extract parameter size (e.g., 7b, 13b)
             const paramMatch = id.match(/(\d+b)/i);
             if (paramMatch) details.parameter_size = paramMatch[1].toUpperCase();
-            
+
             // Extract quantization (e.g., q4, q4_k_m, fp16)
             const quantMatch = id.match(/(q\d[^\s:]*|fp\d+)/i);
             if (quantMatch) details.quantization_level = quantMatch[1].toUpperCase();
@@ -514,18 +730,18 @@ async function startServer() {
       }
 
       // Fallback to Ollama native tags
-      response = await fetch(getApiUrl(LOCAL_URL, 'tags'), { headers });
+      response = await fetch(getApiUrl(localUrl, 'tags'), { headers });
       if (response.ok) {
         const data = await response.json();
         const models = data.models?.map((m: any) => {
           const details = m.details || {};
-          
+
           // If details are missing, try to extract from name (common if proxying)
           if (!details.parameter_size || !details.quantization_level) {
             const id = m.name || '';
             const paramMatch = id.match(/(\d+b)/i);
             if (paramMatch && !details.parameter_size) details.parameter_size = paramMatch[1].toUpperCase();
-            
+
             const quantMatch = id.match(/(q\d[^\s:]*|fp\d+)/i);
             if (quantMatch && !details.quantization_level) details.quantization_level = quantMatch[1].toUpperCase();
           }
@@ -546,15 +762,15 @@ async function startServer() {
     }
   });
 
-  // Router Proxy Endpoint
+  // Router Proxy Endpoint (uses requesting user's config)
   app.post("/api/router", authMiddleware, apiLimiter, validate(routerSchema), async (req, res) => {
     const { prompt } = req.body;
     try {
-      const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+      const config = getUserConfig(req.userId!);
 
       // Check cache if enabled
       if (config.routerCacheEnabled) {
-        const cached = getCachedRoute(prompt);
+        const cached = getCachedRoute(req.userId!, prompt);
         if (cached) {
           log.info({ category: cached.category, model: cached.model }, 'Router cache hit');
           return res.json({ ...cached, cached: true });
@@ -568,10 +784,10 @@ async function startServer() {
 
       // Fallback logic: if no custom router URL, always use local provider
       if (!url) {
-        url = config.localUrl || LOCAL_URL;
-        key = router.key || config.localKey || LOCAL_KEY;
+        url = config.localUrl || "http://localhost:11434";
+        key = router.key || config.localKey || "";
       }
-      
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
@@ -599,8 +815,6 @@ async function startServer() {
               { role: 'system', content: 'You are a routing orchestrator. You must respond with valid JSON ONLY. Structure: {"category": "...", "model": "...", "provider": "...", "reasoning": "...", "confidence": 0.0-1.0}' },
               { role: 'user', content: prompt }
             ],
-            // Removed response_format: { type: 'json_object' } to increase compatibility with local providers.
-            // Our parsing logic now handles markdown blocks automatically.
           }),
           signal: controller.signal
         });
@@ -610,9 +824,9 @@ async function startServer() {
         if (!response.ok) {
           const errText = await response.text();
           const statusInfo = `${response.status} ${response.statusText}`;
-          
+
           let errorMessage = `Router provider error (${statusInfo}): ${errText || 'No error body'}`;
-          
+
           if (response.status === 404) {
             errorMessage = `Router Model Not Found (404). Ensure the model ID "${router.model}" is correct and available at ${fullUrl}.`;
           } else if (response.status === 400) {
@@ -622,20 +836,20 @@ async function startServer() {
           } else if (response.status === 429) {
             errorMessage = `Router Quota Exceeded (429). Your OpenAI/Provider quota has been reached. Consider switching to your local "nexus.model-router" to avoid costs and limits.`;
           }
-          
+
           throw new Error(errorMessage);
         }
 
         const data = await response.json();
         const content = data.choices[0].message.content;
         const usage = data.usage;
-        
+
         try {
           // Attempt to parse the content as JSON
           // Sometimes models wrap JSON in markdown blocks
           const jsonStr = content.replace(/```json\n?|```/g, '').trim();
           const parsed = JSON.parse(jsonStr);
-          
+
           // Add router metadata to the response
           parsed.routerModel = router.model;
           if (usage) {
@@ -647,7 +861,7 @@ async function startServer() {
           }
 
           if (config.routerCacheEnabled) {
-            setCachedRoute(prompt, parsed);
+            setCachedRoute(req.userId!, prompt, parsed);
           }
           res.json(parsed);
         } catch (parseErr) {
@@ -666,29 +880,29 @@ async function startServer() {
     }
   });
 
-  // Main Chat Routing Endpoint
+  // Main Chat Routing Endpoint (uses requesting user's config)
   app.post("/api/chat", authMiddleware, apiLimiter, validate(chatSchema), async (req, res) => {
     const { messages, decision } = req.body;
 
     try {
-      const config = readConfig(ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+      const config = getUserConfig(req.userId!);
 
       // Determine provider URL and Key based on decision
-      let baseUrl = config.localUrl || LOCAL_URL;
-      let apiKey = config.localKey || LOCAL_KEY;
-      
+      let baseUrl = config.localUrl || "http://localhost:11434";
+      let apiKey = config.localKey || "";
+
       if (decision.provider === 'cloud' || decision.provider === 'gemini') {
         // Use cloud settings, fallback to router settings if available
-        baseUrl = config.cloudUrl || CLOUD_URL || config.router.url;
-        apiKey = config.cloudKey || CLOUD_KEY || config.router.key;
+        baseUrl = config.cloudUrl || config.router.url;
+        apiKey = config.cloudKey || config.router.key;
       }
 
       log.info({ model: decision.model, category: decision.category, provider: baseUrl }, 'Routing chat request');
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 120000);
-      
-      const headers: any = { 
+
+      const headers: any = {
         "Content-Type": "application/json",
         "User-Agent": "NexusOrchestrator/1.0",
         "Accept": "application/json"
@@ -699,7 +913,7 @@ async function startServer() {
 
       // Ensure URL ends correctly for OpenAI chat completions
       let fullUrl = baseUrl.replace(/\/$/, "");
-      
+
       const getEndpoints = (base: string) => {
         const endpoints = [];
         const cleanBase = base.replace(/\/$/, "");
@@ -919,21 +1133,21 @@ async function startServer() {
 
           for (const line of lines) {
             if (!line.trim()) continue;
-            
+
             let dataStr = line;
             if (line.startsWith('data: ')) {
               dataStr = line.slice(6);
             }
-            
+
             if (dataStr.trim() === '[DONE]') continue;
-            
+
             try {
               const json = JSON.parse(dataStr);
               // Handle OpenAI format
               const openaiContent = json.choices?.[0]?.delta?.content;
               // Handle Ollama native format
               const ollamaContent = json.message?.content;
-              
+
               // Handle usage info
               let usage = null;
               if (json.usage) {
@@ -951,7 +1165,7 @@ async function startServer() {
                   total_tokens: (json.prompt_eval_count || 0) + (json.eval_count || 0)
                 };
               }
-              
+
               const content = openaiContent || ollamaContent;
               if (content || usage) {
                 res.write(JSON.stringify({ message: { content }, usage }) + '\n');
@@ -973,17 +1187,17 @@ async function startServer() {
     }
   });
 
-  // Full export — all conversations with all messages (for backup/export)
-  app.get("/api/conversations/export", authMiddleware, (_req, res) => {
+  // Full export — all conversations with all messages (for backup/export, user-scoped)
+  app.get("/api/conversations/export", authMiddleware, (req, res) => {
     try {
-      res.json(listConversations());
+      res.json(listConversations(req.userId!));
     } catch (error: any) {
       log.error({ err: error }, 'Error exporting conversations');
       res.status(500).json({ error: "Failed to export conversations" });
     }
   });
 
-  // Conversations Endpoints
+  // Conversations Endpoints (user-scoped)
   app.get("/api/conversations", authMiddleware, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
@@ -991,10 +1205,10 @@ async function startServer() {
 
       // If no pagination params, return legacy full list for backwards compat
       if (!req.query.limit && !req.query.offset) {
-        return res.json(listConversations());
+        return res.json(listConversations(req.userId!));
       }
 
-      const result = listConversationsPaginated(limit, offset);
+      const result = listConversationsPaginated(limit, offset, req.userId!);
       res.json(result);
     } catch (error: any) {
       log.error({ err: error }, 'Error fetching conversations');
@@ -1005,7 +1219,7 @@ async function startServer() {
   // Single conversation with full messages
   app.get("/api/conversations/:id", authMiddleware, async (req, res) => {
     try {
-      const conv = getConversation(req.params.id);
+      const conv = getConversation(req.params.id, req.userId!);
       if (!conv) return res.status(404).json({ error: "Conversation not found" });
       res.json(conv);
     } catch (error: any) {
@@ -1017,7 +1231,7 @@ async function startServer() {
   app.post("/api/conversations", authMiddleware, validate(createConversationSchema), async (req, res) => {
     try {
       const { title, messages } = req.body;
-      const newConversation = createConv(title || "New Conversation", messages || []);
+      const newConversation = createConv(title || "New Conversation", messages || [], req.userId!);
       res.json(newConversation);
     } catch (error: any) {
       log.error({ err: error }, 'Error creating conversation');
@@ -1029,7 +1243,7 @@ async function startServer() {
     try {
       const { id } = req.params;
       const { title, messages } = req.body;
-      const updated = updateConv(id, { title, messages });
+      const updated = updateConv(id, req.userId!, { title, messages });
       if (!updated) return res.status(404).json({ error: "Conversation not found" });
       res.json(updated);
     } catch (error: any) {
@@ -1041,7 +1255,7 @@ async function startServer() {
   app.delete("/api/conversations/:id", authMiddleware, async (req, res) => {
     try {
       const { id } = req.params;
-      deleteConv(id);
+      deleteConv(id, req.userId!);
       res.json({ success: true });
     } catch (error: any) {
       log.error({ err: error }, 'Error deleting conversation');
@@ -1049,11 +1263,11 @@ async function startServer() {
     }
   });
 
-  // --- Projects ---
+  // ─── Projects (user-scoped) ───
 
-  app.get("/api/projects", authMiddleware, (_req, res) => {
+  app.get("/api/projects", authMiddleware, (req, res) => {
     try {
-      res.json(listProjects());
+      res.json(listProjects(req.userId!));
     } catch (error: any) {
       log.error({ err: error }, 'Error listing projects');
       res.status(500).json({ error: "Failed to list projects" });
@@ -1063,7 +1277,7 @@ async function startServer() {
   app.post("/api/projects", authMiddleware, validate(createProjectSchema), (req, res) => {
     try {
       const { name } = req.body;
-      res.json(createProject(name));
+      res.json(createProject(name, req.userId!));
     } catch (error: any) {
       log.error({ err: error }, 'Error creating project');
       res.status(500).json({ error: "Failed to create project" });
@@ -1072,7 +1286,7 @@ async function startServer() {
 
   app.put("/api/projects/:id", authMiddleware, validate(updateProjectSchema), (req, res) => {
     try {
-      const result = updateProject(req.params.id, req.body);
+      const result = updateProject(req.params.id, req.userId!, req.body);
       if (!result) return res.status(404).json({ error: "Project not found" });
       res.json(result);
     } catch (error: any) {
@@ -1084,7 +1298,7 @@ async function startServer() {
   app.delete("/api/projects/:id", authMiddleware, (req, res) => {
     try {
       const deleteChats = req.query.deleteChats === 'true';
-      deleteProject(req.params.id, deleteChats);
+      deleteProject(req.params.id, req.userId!, deleteChats);
       res.json({ success: true });
     } catch (error: any) {
       log.error({ err: error }, 'Error deleting project');
@@ -1095,7 +1309,7 @@ async function startServer() {
   app.patch("/api/conversations/:id/project", authMiddleware, validate(assignConversationSchema), (req, res) => {
     try {
       const { projectId } = req.body;
-      assignConversation(req.params.id, projectId);
+      assignConversation(req.params.id, projectId, req.userId!);
       res.json({ success: true });
     } catch (error: any) {
       log.error({ err: error }, 'Error assigning conversation to project');

@@ -2,7 +2,28 @@ import { z } from 'zod';
 
 // Auth
 export const loginSchema = z.object({
-  key: z.string().min(1, 'API key is required'),
+  username: z.string().min(1, 'Username is required'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export const registerSchema = z.object({
+  username: z.string().min(3, 'Username must be at least 3 characters').max(50).regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, hyphens, and underscores'),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+});
+
+export const adminCreateUserSchema = z.object({
+  username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/),
+  password: z.string().min(8).max(128),
+  role: z.enum(['admin', 'user']).optional().default('user'),
+});
+
+export const adminResetPasswordSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
 });
 
 // Config

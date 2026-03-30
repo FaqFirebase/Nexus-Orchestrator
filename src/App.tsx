@@ -8,6 +8,7 @@ import { useConversations } from './hooks/useConversations';
 import { useChat } from './hooks/useChat';
 
 import LoginModal from './components/LoginModal';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ChatTab from './components/chat/ChatTab';
@@ -18,6 +19,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 export default function App() {
   const [activeTab, setActiveTab] = useState<'chat' | 'models' | 'system'>('chat');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const auth = useAuth();
 
@@ -33,6 +35,8 @@ export default function App() {
     setIsAuthorized: auth.setIsAuthorized,
     setShowLoginModal: auth.setShowLoginModal,
     setConfig: configHook.setConfig,
+    setUser: auth.setUser,
+    setRegistrationEnabled: auth.setRegistrationEnabled,
   });
 
   const convos = useConversations();
@@ -58,12 +62,25 @@ export default function App() {
   }, [connection.checkConnection, convos.fetchConversations]);
 
   // Handle login — authenticate via cookie, then refresh connection
-  const handleLogin = async (key: string) => {
-    const success = await auth.handleLogin(key);
+  const handleLogin = async (username: string, password: string) => {
+    const success = await auth.handleLogin(username, password);
     if (success) {
       connection.checkConnection(true);
       convos.fetchConversations();
+      convos.fetchProjects();
     }
+    return success;
+  };
+
+  // Handle register — create account, auto-login, then refresh
+  const handleRegister = async (username: string, password: string) => {
+    const result = await auth.handleRegister(username, password);
+    if (result.success) {
+      connection.checkConnection(true);
+      convos.fetchConversations();
+      convos.fetchProjects();
+    }
+    return result;
   };
 
   return (
@@ -72,7 +89,18 @@ export default function App() {
         {auth.showLoginModal && (
           <LoginModal
             onLogin={handleLogin}
+            onRegister={handleRegister}
             onCancel={() => auth.setShowLoginModal(false)}
+            registrationEnabled={auth.registrationEnabled}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showChangePassword && (
+          <ChangePasswordModal
+            onChangePassword={auth.changePassword}
+            onClose={() => setShowChangePassword(false)}
           />
         )}
       </AnimatePresence>
@@ -86,6 +114,9 @@ export default function App() {
         setActiveTab={setActiveTab}
         isSidebarOpen={isSidebarOpen}
         setIsSidebarOpen={setIsSidebarOpen}
+        user={auth.user}
+        onLogout={auth.logout}
+        onChangePassword={() => setShowChangePassword(true)}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
@@ -165,6 +196,7 @@ export default function App() {
                       conversations={convos.conversations}
                       fetchConversations={convos.fetchConversations}
                       onSaveConfig={configHook.saveConfig}
+                      user={auth.user}
                     />
                   </ErrorBoundary>
                 )}

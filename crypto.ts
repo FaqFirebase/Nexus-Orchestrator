@@ -41,6 +41,26 @@ export function decrypt(data: string, password: string) {
   }
 }
 
+// Password hashing for user authentication
+const PASSWORD_SALT_LENGTH = 32;
+const PASSWORD_KEY_LENGTH = 64;
+
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(PASSWORD_SALT_LENGTH);
+  const hash = crypto.scryptSync(password, salt, PASSWORD_KEY_LENGTH);
+  return salt.toString('hex') + ':' + hash.toString('hex');
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [saltHex, hashHex] = stored.split(':');
+  if (!saltHex || !hashHex) return false;
+  const salt = Buffer.from(saltHex, 'hex');
+  const storedHash = Buffer.from(hashHex, 'hex');
+  const hash = crypto.scryptSync(password, salt, PASSWORD_KEY_LENGTH);
+  if (hash.length !== storedHash.length) return false;
+  return crypto.timingSafeEqual(hash, storedHash);
+}
+
 // Used only for JSON file migration — reads encrypted JSON files from the old storage format
 export async function readEncryptedJson(filePath: string, key: string) {
   let content: string;

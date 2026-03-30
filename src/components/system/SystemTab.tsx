@@ -1,16 +1,18 @@
 import { Database, Settings, MessageSquare, RefreshCw } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import type { NexusConfig, Conversation } from '../../types';
+import type { NexusConfig, Conversation, User } from '../../types';
+import UserManagement from './UserManagement';
 
 interface SystemTabProps {
   config: NexusConfig;
   conversations: Conversation[];
   fetchConversations: () => void;
   onSaveConfig: (config: NexusConfig) => void;
+  user: User | null;
 }
 
-export default function SystemTab({ config, conversations, fetchConversations, onSaveConfig }: SystemTabProps) {
+export default function SystemTab({ config, conversations, fetchConversations, onSaveConfig, user }: SystemTabProps) {
   const downloadJson = (data: any, filename: string) => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -53,6 +55,9 @@ export default function SystemTab({ config, conversations, fetchConversations, o
         </div>
 
         <div className="grid gap-8">
+          {/* User Management — admin only */}
+          {user?.role === 'admin' && <UserManagement />}
+
           {/* Settings */}
           <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
             <div className="flex items-center gap-2">
