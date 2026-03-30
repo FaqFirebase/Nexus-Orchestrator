@@ -15,6 +15,16 @@ export function useConversations() {
   const activeConversationIdRef = useRef<string | null>(null);
   activeConversationIdRef.current = activeConversationId;
 
+  const clearAll = useCallback(() => {
+    setConversations([]);
+    setMessages([]);
+    setProjects([]);
+    setActiveConversationId(null);
+    setHasMore(true);
+    setTotalCount(0);
+    activeConversationIdRef.current = null;
+  }, []);
+
   const fetchConversations = useCallback(async () => {
     try {
       const res = await fetch(`${window.location.origin}/api/conversations?limit=${PAGE_SIZE}&offset=0`);
@@ -28,14 +38,17 @@ export function useConversations() {
         } else {
           setHasMore(false);
         }
-        if (convs.length > 0 && !activeConversationIdRef.current) {
+        // Always load the first conversation's messages fresh — never rely on stale activeConversationId
+        if (convs.length > 0) {
           setActiveConversationId(convs[0].id);
-          // Fetch full conversation with messages
           const convRes = await fetch(`${window.location.origin}/api/conversations/${convs[0].id}`);
           if (convRes.ok) {
             const fullConv = await convRes.json();
             setMessages(fullConv.messages || []);
           }
+        } else {
+          setActiveConversationId(null);
+          setMessages([]);
         }
       }
     } catch (err) {
@@ -267,6 +280,7 @@ export function useConversations() {
     setActiveConversationId,
     messages,
     setMessages,
+    clearAll,
     fetchConversations,
     loadMoreConversations,
     hasMore,

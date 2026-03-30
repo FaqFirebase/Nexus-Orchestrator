@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence } from 'motion/react';
+import { DEFAULT_CONFIG } from './constants';
 
 import { useAuth } from './hooks/useAuth';
 import { useConnection } from './hooks/useConnection';
@@ -72,6 +73,13 @@ export default function App() {
     return success;
   };
 
+  // Handle logout — clear all in-memory state before invalidating the session
+  const handleLogout = useCallback(async () => {
+    convos.clearAll();
+    configHook.setConfig(DEFAULT_CONFIG);
+    await auth.logout();
+  }, [convos.clearAll, configHook.setConfig, auth.logout]);
+
   // Handle register — create account, auto-login, then refresh
   const handleRegister = async (username: string, password: string) => {
     const result = await auth.handleRegister(username, password);
@@ -92,6 +100,7 @@ export default function App() {
             onRegister={handleRegister}
             onCancel={() => auth.setShowLoginModal(false)}
             registrationEnabled={auth.registrationEnabled}
+            required={!auth.isAuthorized}
           />
         )}
       </AnimatePresence>
@@ -115,11 +124,12 @@ export default function App() {
         isSidebarOpen={isSidebarOpen}
         setIsSidebarOpen={setIsSidebarOpen}
         user={auth.user}
-        onLogout={auth.logout}
+        onLogout={handleLogout}
         onChangePassword={() => setShowChangePassword(true)}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
+        {!auth.isAuthorized ? null : (<>
         <AnimatePresence mode="wait">
           {isSidebarOpen && (
             <Sidebar
@@ -178,7 +188,7 @@ export default function App() {
                       saveConfig={configHook.saveConfig}
                       authRequired={auth.authRequired}
                       isAuthorized={auth.isAuthorized}
-                      logout={auth.logout}
+                      logout={handleLogout}
                       localModels={connection.localModels}
                       connectionStatus={connection.connectionStatus}
                       isLoading={chat.isLoading}
@@ -204,6 +214,7 @@ export default function App() {
             </div>
           )}
         </main>
+        </>)}
       </div>
     </div>
   );

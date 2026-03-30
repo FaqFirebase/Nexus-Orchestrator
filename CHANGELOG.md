@@ -1,6 +1,9 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.1
+- **Session isolation fix** — Signing out now fully clears all in-memory state (conversations, messages, projects, config) before invalidating the session. The login modal can no longer be dismissed when authentication is required, and the main UI is hidden while logged out.
+
 ### v1.1.0
 - **Multi-user support** — Nexus now supports multiple users with per-user isolation. Each user gets their own provider config, category mappings, conversations, and projects — completely independent from other users.
   - **Username/password authentication** — Replaced single API key login with username + password. The first admin account is auto-created from `ADMIN_API_KEY` on startup (username: `admin`, password: your existing key). Existing data is migrated to the admin user seamlessly.

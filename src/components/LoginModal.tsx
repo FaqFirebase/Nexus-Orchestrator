@@ -7,9 +7,10 @@ interface LoginModalProps {
   onRegister?: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   onCancel: () => void;
   registrationEnabled?: boolean;
+  required?: boolean;
 }
 
-export default function LoginModal({ onLogin, onRegister, onCancel, registrationEnabled }: LoginModalProps) {
+export default function LoginModal({ onLogin, onRegister, onCancel, registrationEnabled, required }: LoginModalProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -133,12 +134,14 @@ export default function LoginModal({ onLogin, onRegister, onCancel, registration
           {error && <p className="text-[10px] text-red-400 ml-1">{error}</p>}
 
           <div className="flex gap-3">
-            <button
-              onClick={onCancel}
-              className="flex-1 px-6 py-3 rounded-2xl border border-zinc-800 text-xs font-bold text-zinc-500 uppercase tracking-widest hover:bg-zinc-800 hover:text-zinc-300 transition-all"
-            >
-              Cancel
-            </button>
+            {!required && (
+              <button
+                onClick={onCancel}
+                className="flex-1 px-6 py-3 rounded-2xl border border-zinc-800 text-xs font-bold text-zinc-500 uppercase tracking-widest hover:bg-zinc-800 hover:text-zinc-300 transition-all"
+              >
+                Cancel
+              </button>
+            )}
             <button
               onClick={handleSubmit}
               disabled={isSubmitting}
