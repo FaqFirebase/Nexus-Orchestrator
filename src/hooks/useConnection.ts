@@ -10,10 +10,11 @@ interface UseConnectionDeps {
   setConfig: (cfg: NexusConfig) => void;
   setUser: (u: User | null) => void;
   setRegistrationEnabled: (v: boolean) => void;
+  clearConversationState: () => void;
 }
 
 export function useConnection(deps: UseConnectionDeps) {
-  const { showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig, setUser, setRegistrationEnabled } = deps;
+  const { showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig, setUser, setRegistrationEnabled, clearConversationState } = deps;
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: 'checking' });
   const [localModels, setLocalModels] = useState<any[]>([]);
@@ -29,6 +30,8 @@ export function useConnection(deps: UseConnectionDeps) {
 
       // If already authenticated via cookie, the server tells us
       if (authStatus.authRequired && !authStatus.isAuthenticated) {
+        clearConversationState();
+        setConfig(DEFAULT_CONFIG);
         setIsAuthorized(false);
         setUser(null);
         if (!showLoginModal) setShowLoginModal(true);
@@ -43,6 +46,8 @@ export function useConnection(deps: UseConnectionDeps) {
       const res = await fetch(`${window.location.origin}/api/health`);
 
       if (res.status === 401) {
+        clearConversationState();
+        setConfig(DEFAULT_CONFIG);
         setIsAuthorized(false);
         setUser(null);
         if (!showLoginModal) setShowLoginModal(true);
@@ -82,7 +87,7 @@ export function useConnection(deps: UseConnectionDeps) {
     } catch (err) {
       setConnectionStatus({ status: 'error', message: 'Failed to reach proxy' });
     }
-  }, [showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig, setUser, setRegistrationEnabled]);
+  }, [showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig, setUser, setRegistrationEnabled, clearConversationState]);
 
   const runPing = useCallback(async () => {
     setIsPinging(true);

@@ -273,6 +273,43 @@ function getUserConfig(userId: string): any {
 
 // Config and conversations init/migration handled by db.ts initDb()
 
+// Per-user FIFO queue for chat requests — prevents concurrent streams from one user
+// piling up and keeps the server stable under multiple simultaneous users.
+const MAX_QUEUE_DEPTH = 5;
+
+class UserChatQueue {
+  private active = false;
+  private pending: Array<() => Promise<void>> = [];
+
+  get depth() { return this.pending.length + (this.active ? 1 : 0); }
+
+  enqueue(fn: () => Promise<void>): Promise<void> {
+    if (this.pending.length >= MAX_QUEUE_DEPTH) {
+      return Promise.reject(new Error('Too many pending requests — try again shortly'));
+    }
+    return new Promise<void>((resolve, reject) => {
+      this.pending.push(() => fn().then(resolve, reject));
+      this.tick();
+    });
+  }
+
+  private tick() {
+    if (this.active || this.pending.length === 0) return;
+    this.active = true;
+    const fn = this.pending.shift()!;
+    fn().finally(() => {
+      this.active = false;
+      this.tick();
+    });
+  }
+}
+
+const chatQueues = new Map<string, UserChatQueue>();
+function getChatQueue(userId: string): UserChatQueue {
+  if (!chatQueues.has(userId)) chatQueues.set(userId, new UserChatQueue());
+  return chatQueues.get(userId)!;
+}
+
 async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -883,7 +920,30 @@ async function startServer() {
   // Main Chat Routing Endpoint (uses requesting user's config)
   app.post("/api/chat", authMiddleware, apiLimiter, validate(chatSchema), async (req, res) => {
     const { messages, decision } = req.body;
+    const queue = getChatQueue(req.userId!);
 
+    let cancelled = false;
+    req.on('close', () => { cancelled = true; });
+
+    try {
+      await queue.enqueue(async () => {
+        if (cancelled) return;
+        try {
+          await handleChat(req, res, messages, decision);
+        } catch (error: any) {
+          log.error({ err: error }, 'Chat routing error');
+          if (!res.headersSent) {
+            res.status(500).json({ error: error.message, tip: "Ensure your provider is running and accessible." });
+          }
+        }
+      });
+    } catch (err: any) {
+      log.warn({ userId: req.userId, depth: queue.depth }, 'Chat queue full');
+      res.status(503).json({ error: err.message });
+    }
+  });
+
+  async function handleChat(req: any, res: any, messages: any, decision: any) {
     try {
       const config = getUserConfig(req.userId!);
 
@@ -1180,12 +1240,14 @@ async function startServer() {
 
     } catch (error: any) {
       log.error({ err: error }, 'Chat routing error');
-      res.status(500).json({
-        error: error.message,
-        tip: "Ensure your provider is running and accessible."
-      });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: error.message,
+          tip: "Ensure your provider is running and accessible."
+        });
+      }
     }
-  });
+  }
 
   // Full export — all conversations with all messages (for backup/export, user-scoped)
   app.get("/api/conversations/export", authMiddleware, (req, res) => {
@@ -1309,7 +1371,8 @@ async function startServer() {
   app.patch("/api/conversations/:id/project", authMiddleware, validate(assignConversationSchema), (req, res) => {
     try {
       const { projectId } = req.body;
-      assignConversation(req.params.id, projectId, req.userId!);
+      const ok = assignConversation(req.params.id, projectId, req.userId!);
+      if (!ok) return res.status(403).json({ error: "Project not found or access denied" });
       res.json({ success: true });
     } catch (error: any) {
       log.error({ err: error }, 'Error assigning conversation to project');

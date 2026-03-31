@@ -311,7 +311,7 @@ export function getConversation(id: string, userId: string): any | null {
 // Transactional functions — lazily create transactions after db is initialized
 function getCreateConversation() {
   return db.transaction((title: string, messages: any[], userId: string, projectId?: string | null) => {
-    const id = Date.now().toString();
+    const id = crypto.randomUUID();
     const updatedAt = new Date().toISOString();
     db.prepare('INSERT INTO conversations (id, title, updated_at, project_id, user_id) VALUES (?, ?, ?, ?, ?)').run(id, title || 'New Conversation', updatedAt, projectId ?? null, userId);
     insertMessages(id, messages);
@@ -369,7 +369,7 @@ export function listProjects(userId: string): any[] {
 }
 
 export function createProject(name: string, userId: string): any {
-  const id = Date.now().toString();
+  const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
   db.prepare('INSERT INTO projects (id, name, collapsed, created_at, user_id) VALUES (?, ?, 0, ?, ?)').run(id, name, createdAt, userId);
   return { id, name, collapsed: false, createdAt };
@@ -395,8 +395,13 @@ export function deleteProject(id: string, userId: string, deleteChats: boolean):
   db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?').run(id, userId);
 }
 
-export function assignConversation(convId: string, projectId: string | null, userId: string): void {
+export function assignConversation(convId: string, projectId: string | null, userId: string): boolean {
+  if (projectId !== null) {
+    const project = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(projectId, userId);
+    if (!project) return false;
+  }
   db.prepare('UPDATE conversations SET project_id = ? WHERE id = ? AND user_id = ?').run(projectId, convId, userId);
+  return true;
 }
 
 // --- Helpers ---

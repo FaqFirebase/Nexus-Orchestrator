@@ -228,32 +228,23 @@ docker build -t nexus-orchestrator:latest .
 
 ## Roadmap
 
-- ✅ CORS configuration — Same-origin enforcement
-- ✅ Cookie-based auth — httpOnly session cookies, timing-safe key comparison
-- ✅ SSRF protection — URL validation on config save, blocks non-http(s) schemes and cloud metadata endpoints
-- ✅ LaTeX rendering — KaTeX support for math notation output from reasoning models
-- ✅ Input validation — Zod schemas for all API endpoints (v1.0.5)
-- ✅ Tests — Vitest for validation schemas (v1.0.5)
-- ✅ Rate limiting — Login brute-force protection + API request throttling (v1.0.5)
-- ✅ SQLite migration — Replaced JSON file storage with SQLite + WAL mode (v1.0.3)
-- ✅ Model fallback — Auto-fallback to next model in category pool when selected model is unavailable (v1.0.4)
-- ✅ Conversation pagination — Paginated API + lazy-loading sidebar with "Load More", messages fetched on demand (v1.0.6)
-- ✅ Router result caching — In-memory LRU cache with 5-minute TTL, off by default, toggle in System tab (v1.0.6)
-- ✅ Multi-user support — Per-user accounts with isolated config, conversations, and projects (v1.1.0)
-- ✅ Error boundaries — React error boundaries to prevent full UI crashes (v1.0.8)
-- ✅ Projects — Organize conversations into named project folders; collapse/expand, right-click to assign, delete project with option to keep or remove chats (v1.0.8)
-- [ ] Multiple local providers — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously; model discovery aggregates across all providers; routing targets the correct endpoint per model
-- [ ] Request queuing — Job queue for multiple concurrent long-running streams
-- ✅ Stop generation — Cancel button aborts in-flight SSE stream, resets loading state (v1.0.1)
-  > **Known limitation:** The UI stops immediately, but Ollama will continue generating in the background until the current response completes. This is a Docker networking constraint — TCP disconnect does not propagate to the Ollama llama runner. Cloud providers (OpenAI, Gemini, etc.) are unaffected.Looking for a fix
-- [ ] Ollama backend abort — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
-- ✅ Chat input UX — Auto-growing textarea, character/line count display (v1.0.4)
-- ✅ FAST category — Built-in category for quick, lightweight responses using small/fast models (v1.0.6)
-- ✅ SECURITY category — Dedicated category for security analysis, vulnerability assessment, threat modeling, CTF challenges (v1.0.6)
-- ✅ Category Mappings cloud filter — Cloud provider warning when unconfigured, X button repositioned out of the dropdown's way, hover tooltip added (v1.0.2)
+### Planned
+
+- [ ] **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously; model discovery aggregates across all providers; routing targets the correct endpoint per model
+- [ ] **SearXNG web search via tool calling** — LLM-driven web search using the `tools` / `tool_calls` API. Always-on global toggle or per-chat enable button. Server handles the agentic loop transparently.
+- [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
+- [ ] **Request queuing** — Job queue for multiple concurrent long-running streams
+
+See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
 
 ---
 
 ## Changelog
+
+**v1.1.2** — Request queuing. Each user now has a per-user FIFO queue for chat requests. Concurrent requests process in order; up to 5 can be pending per user.
+
+**v1.1.1** — Session isolation fix. Logout and session expiry fully clear all in-memory state. Login modal non-dismissible when auth is required.
+
+**v1.1.0** — Multi-user support. Per-user accounts with isolated config, conversations, and projects. Username/password login, session-based auth, admin user management, optional public registration.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.

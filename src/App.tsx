@@ -30,6 +30,8 @@ export default function App() {
     checkConnection: () => connection.checkConnection(false),
   });
 
+  const convos = useConversations();
+
   const connection = useConnection({
     showLoginModal: auth.showLoginModal,
     setAuthRequired: auth.setAuthRequired,
@@ -38,9 +40,8 @@ export default function App() {
     setConfig: configHook.setConfig,
     setUser: auth.setUser,
     setRegistrationEnabled: auth.setRegistrationEnabled,
+    clearConversationState: convos.clearAll,
   });
-
-  const convos = useConversations();
 
   const chat = useChat({
     messages: convos.messages,

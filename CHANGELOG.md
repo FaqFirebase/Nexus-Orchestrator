@@ -1,6 +1,9 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.2
+- **Request queuing** — Each user now has a per-user FIFO queue for chat requests. Concurrent requests are processed in order rather than racing. Maximum of 5 pending requests per user; a 6th returns a 503. Requests cancelled by the client while waiting in queue are skipped automatically.
+
 ### v1.1.1
 - **Session isolation fix** — Signing out now fully clears all in-memory state (conversations, messages, projects, config) before invalidating the session. The login modal can no longer be dismissed when authentication is required, and the main UI is hidden while logged out.
 
