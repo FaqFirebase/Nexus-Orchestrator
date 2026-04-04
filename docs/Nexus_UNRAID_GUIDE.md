@@ -12,6 +12,7 @@ Run Nexus Orchestrator on Unraid using Docker. This guide covers installation, c
 - [First Run](#first-run)
 - [First-Time Setup](#first-time-setup)
 - [Using the App](#using-the-app)
+  - [Web Search (SearXNG)](#web-search-searxng)
 - [Remote Access](#remote-access)
 - [Troubleshooting](#troubleshooting)
 
@@ -197,6 +198,37 @@ Organize conversations into named project folders:
 4. Click a project header to collapse or expand it
 5. Double-click a project name to rename it
 6. Click the trash icon on a project to delete it — you can choose to keep the chats (they move to unassigned) or delete them all
+
+### Web Search (SearXNG)
+
+Nexus can give LLMs real-time web search capability using a self-hosted [SearXNG](https://github.com/searxng/searxng) instance. The LLM uses tool calling to decide when to search — it won't search on every message, only when it determines it needs current information.
+
+> **Requires a model that supports tool calling.** Recommended Ollama models: `llama3.1`, `llama3.2`, `qwen2.5`, `mistral-nemo`. Models like `deepseek-coder` do not support tool calling and will ignore the tool.
+
+**Setup:**
+
+1. Run SearXNG on your network (separate Docker container — see the SearXNG docs)
+2. In Nexus, go to **Models** tab → **Web Search (SearXNG)** section
+3. Enter your SearXNG URL (e.g. `http://192.168.1.50:8080`)
+4. Click **Save Search Settings**
+
+**Using web search:**
+
+- **Per-chat:** Click the 🌐 globe icon in the chat input bar to enable search for that message. The icon lights up blue when active.
+- **Always On:** Toggle **Always On** in the Web Search config section — the search tool is included in every request automatically.
+
+**What triggers a search:**
+
+Prompts asking for current or recent information work best:
+- *"What's the latest news on X?"*
+- *"Search the web for the newest version of Y"*
+- *"What happened with Z today?"*
+
+When a search fires, the routing status shows **> Searching the Web...** with a blue globe indicator. The completed message shows a **Web Search: \<query\>** badge showing exactly what was searched.
+
+**FAST category** always skips the search tool regardless of settings.
+
+---
 
 ### Router Result Caching
 

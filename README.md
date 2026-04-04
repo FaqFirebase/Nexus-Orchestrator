@@ -14,6 +14,7 @@ Nexus is more than a chat interface — it's an **orchestration layer** for your
 - **Hybrid Orchestration** — Mix local and cloud models per category. Switch seamlessly without changing your workflow.
 - **Multi-User Support** — Multiple users with per-user provider config, category mappings, conversations, and projects. Admin manages users from the System tab.
 - **Vision & Document Support** — Upload images and documents directly in the chat. Vision models receive them in the correct format automatically.
+- **Web Search via Tool Calling** — Connect a self-hosted SearXNG instance so the LLM can search the web when it needs current information. Enable globally or per-chat with a single click.
 - **Privacy First** — Point the router at a local Ollama model and your prompts never leave your network.
 - **Structured Logging** — JSON logs in production (pino), pretty-printed in dev. Control verbosity with `LOG_LEVEL`.
 - **Unraid Ready** — Includes a community template for one-click Unraid deployment.
@@ -191,6 +192,19 @@ You can add custom categories using the input at the bottom of the Models tab.
 
 ---
 
+### Web Search (SearXNG)
+
+Connect a self-hosted SearXNG instance to give your LLMs tool-calling access to the web. The model decides when to search — it won't search on every message.
+
+- **SearXNG URL** — The address of your SearXNG instance (e.g. `http://192.168.1.50:8080`). Must be accessible from the Nexus container.
+- **Always On** — Include the search tool in every request. Otherwise, use the 🌐 globe button in the chat input to enable it per-chat.
+
+> Requires a model that supports tool calling. Recommended: `llama3.1`, `llama3.2`, `qwen2.5`, `mistral-nemo`. FAST category always skips search.
+
+When a search fires mid-response, the routing indicator switches to **> Searching the Web...** with a blue globe. Completed messages show a **Web Search: \<query\>** badge.
+
+---
+
 ## System Settings
 
 ### Router Result Caching
@@ -231,9 +245,8 @@ docker build -t nexus-orchestrator:latest .
 ### Planned
 
 - [ ] **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously; model discovery aggregates across all providers; routing targets the correct endpoint per model
-- [ ] **SearXNG web search via tool calling** — LLM-driven web search using the `tools` / `tool_calls` API. Always-on global toggle or per-chat enable button. Server handles the agentic loop transparently.
+- [ ] **URL fetch/browse tool** — Companion to web search; lets the LLM fetch and read the content of a specific URL directly
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
-- [ ] **Request queuing** — Job queue for multiple concurrent long-running streams
 
 See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
 
