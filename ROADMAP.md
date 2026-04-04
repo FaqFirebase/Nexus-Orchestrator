@@ -6,15 +6,15 @@
 - [ ] **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously. Model discovery aggregates across all providers. Routing targets the correct endpoint per model. Config shape: `localProviders: [{ url, key, name }]` replaces single `localUrl`/`localKey`. Backward compatible — existing `localUrl` migrates to `localProviders[0]`.
 
 ### Medium Priority
-- [ ] **SearXNG web search via tool calling** — Expose a `web_search` tool to the LLM using the OpenAI-compatible `tools` / `tool_calls` API. The LLM decides when to search. Server handles the agentic loop server-side and streams the final response. Config: SearXNG URL in user config. Two modes: always-on global toggle, or per-chat toggle button in the chat input bar. FAST category skips tool injection.
+- [ ] **URL fetch/browse tool** — Add a `fetch_url` LLM tool alongside web search. Fetches a specific URL and returns the page content as plain text so the model can read it directly. Shares the same enable toggle as SearXNG web search.
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects. TCP disconnect does not propagate through Docker networking to the llama runner. UI stop works; backend keeps generating.
-
-### Nice to Have
-- ✅ **Request queuing** — Per-user FIFO queue for chat requests (v1.1.2)
 
 ---
 
 ## Completed
+
+### v1.1.3
+- ✅ **SearXNG web search via tool calling** — LLM-driven `web_search` tool using OpenAI-compatible `tools` / `tool_calls` API. Configure SearXNG URL in Models tab. Always-on toggle or per-chat globe button in the chat input bar. Server handles the full agentic loop transparently and streams the final response. FAST category skips tool injection. Compatible with Ollama and any OpenAI-compatible provider supporting tool calls.
 
 ### v1.1.2
 - ✅ **Request queuing** — Per-user FIFO queue for chat requests. Concurrent requests process in order rather than racing. Max 5 pending per user; excess returns 503. Client disconnects while queued are skipped automatically.

@@ -273,6 +273,55 @@ function getUserConfig(userId: string): any {
 
 // Config and conversations init/migration handled by db.ts initDb()
 
+// Pipes an upstream SSE ReadableStream reader to an Express response
+async function streamSseToResponse(reader: ReadableStreamDefaultReader<Uint8Array>, res: any) {
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let dataStr = line.startsWith('data: ') ? line.slice(6) : line;
+      if (dataStr.trim() === '[DONE]') continue;
+      try {
+        const json = JSON.parse(dataStr);
+        const openaiContent = json.choices?.[0]?.delta?.content;
+        const ollamaContent = json.message?.content;
+        let usage = null;
+        if (json.usage) {
+          usage = { prompt_tokens: json.usage.prompt_tokens, completion_tokens: json.usage.completion_tokens, total_tokens: json.usage.total_tokens };
+        } else if (json.prompt_eval_count !== undefined || json.eval_count !== undefined) {
+          usage = { prompt_tokens: json.prompt_eval_count || 0, completion_tokens: json.eval_count || 0, total_tokens: (json.prompt_eval_count || 0) + (json.eval_count || 0) };
+        }
+        const content = openaiContent || ollamaContent;
+        if (content || usage) res.write(JSON.stringify({ message: { content }, usage }) + '\n');
+      } catch { /* skip invalid JSON */ }
+    }
+  }
+}
+
+// SearXNG web search helper — used by tool-calling path in handleChat
+async function runSearxngSearch(searxngUrl: string, query: string): Promise<string> {
+  try {
+    const url = new URL('/search', searxngUrl);
+    url.searchParams.set('q', query);
+    url.searchParams.set('format', 'json');
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return `Search failed: HTTP ${res.status}`;
+    const data = await res.json() as any;
+    const results = (data.results || []).slice(0, 5).map((r: any) =>
+      `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.content || r.snippet || ''}`
+    ).join('\n\n');
+    return results || 'No results found.';
+  } catch (err: any) {
+    return `Search error: ${err.message}`;
+  }
+}
+
 // Per-user FIFO queue for chat requests — prevents concurrent streams from one user
 // piling up and keeps the server stable under multiple simultaneous users.
 const MAX_QUEUE_DEPTH = 5;
@@ -560,6 +609,7 @@ async function startServer() {
         { name: 'localUrl', value: newConfig.localUrl },
         { name: 'cloudUrl', value: newConfig.cloudUrl },
         { name: 'router.url', value: newConfig.router?.url },
+        { name: 'searxng.url', value: newConfig.searxng?.url },
       ];
       for (const { name, value } of urlsToCheck) {
         if (value) {
@@ -1020,6 +1070,29 @@ async function startServer() {
       // Build ordered list of models to try: primary model first, then fallbacks
       const modelsToTry = [decision.model, ...(decision.fallbackModels || [])].filter(Boolean);
 
+      // Web search tool calling — enabled when searxng is configured and not FAST category
+      const searxngUrl = config.searxng?.url || '';
+      const searchEnabled = !!(
+        (req.body.webSearchEnabled || config.searxng?.alwaysOn) &&
+        searxngUrl &&
+        decision.category !== 'FAST'
+      );
+
+      const webSearchTool = {
+        type: 'function',
+        function: {
+          name: 'web_search',
+          description: 'Search the web for current information, news, or facts using SearXNG.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'The search query' }
+            },
+            required: ['query']
+          }
+        }
+      };
+
       let response: any = null;
       let lastError: any = null;
 
@@ -1081,8 +1154,8 @@ async function startServer() {
                   }
                   return msg;
                 }),
-                stream: true,
-                stream_options: { include_usage: true }
+                stream: !searchEnabled,
+                ...(searchEnabled ? { tools: [webSearchTool], tool_choice: 'auto' } : { stream_options: { include_usage: true } })
               }),
               signal: attemptController.signal,
             });
@@ -1173,67 +1246,97 @@ async function startServer() {
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
 
-      if (response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+      if (searchEnabled) {
+        // --- Tool-calling path ---
+        // First response is non-streaming; check for tool_calls before streaming final reply.
+        const firstJson = await response.json() as any;
+        const isOllamaNative = fullUrl.endsWith('/api/chat');
 
-        // Propagate client disconnect to the upstream provider (stops Ollama generation)
-        req.on('close', () => {
-          reader.cancel().catch(() => {});
-        });
+        const toolCalls = firstJson.choices?.[0]?.message?.tool_calls
+          || firstJson.message?.tool_calls;
 
-        let serverBuf = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        if (toolCalls?.length && toolCalls[0].function?.name === 'web_search') {
+          const rawArgs = toolCalls[0].function.arguments;
+          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          const query: string = args.query || '';
+          log.info({ query, userId: req.userId }, 'web_search tool call — querying SearXNG');
 
-          serverBuf += decoder.decode(value, { stream: true });
-          const lines = serverBuf.split('\n');
-          serverBuf = lines.pop() ?? ''; // keep incomplete trailing fragment
+          // Notify the client that a search is in progress
+          res.write(JSON.stringify({ searching: true, query }) + '\n');
 
-          for (const line of lines) {
-            if (!line.trim()) continue;
+          const searchResults = await runSearxngSearch(searxngUrl, query);
 
-            let dataStr = line;
-            if (line.startsWith('data: ')) {
-              dataStr = line.slice(6);
-            }
+          // Build messages for the follow-up streaming request
+          const assistantToolMsg = isOllamaNative
+            ? { role: 'assistant', content: '', tool_calls: toolCalls }
+            : { role: 'assistant', content: null, tool_calls: toolCalls };
 
-            if (dataStr.trim() === '[DONE]') continue;
+          const toolResultMsg = isOllamaNative
+            ? { role: 'tool', content: searchResults }
+            : { role: 'tool', tool_call_id: toolCalls[0].id || 'search_0', content: searchResults };
 
-            try {
-              const json = JSON.parse(dataStr);
-              // Handle OpenAI format
-              const openaiContent = json.choices?.[0]?.delta?.content;
-              // Handle Ollama native format
-              const ollamaContent = json.message?.content;
-
-              // Handle usage info
-              let usage = null;
-              if (json.usage) {
-                // OpenAI format
-                usage = {
-                  prompt_tokens: json.usage.prompt_tokens,
-                  completion_tokens: json.usage.completion_tokens,
-                  total_tokens: json.usage.total_tokens
-                };
-              } else if (json.prompt_eval_count !== undefined || json.eval_count !== undefined) {
-                // Ollama format
-                usage = {
-                  prompt_tokens: json.prompt_eval_count || 0,
-                  completion_tokens: json.eval_count || 0,
-                  total_tokens: (json.prompt_eval_count || 0) + (json.eval_count || 0)
-                };
+          // Re-build messages with tool exchange appended
+          const followUpMessages = [...messages.map((m: any) => {
+            const isOllamaNativeUrl = fullUrl.endsWith('/api/chat');
+            let content = m.content || '';
+            const msg: any = { role: m.role, content };
+            if (m.attachments?.length > 0) {
+              const images = m.attachments.filter((a: any) => a.type.startsWith('image/')).map((a: any) =>
+                a.content?.includes(',') ? a.content.split(',')[1] : a.content
+              );
+              if (images.length > 0) {
+                if (isOllamaNativeUrl) {
+                  msg.images = images;
+                } else if (m.role === 'user') {
+                  msg.content = [
+                    { type: 'text', text: m.content || '' },
+                    ...images.map((img: string) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } }))
+                  ];
+                }
               }
-
-              const content = openaiContent || ollamaContent;
-              if (content || usage) {
-                res.write(JSON.stringify({ message: { content }, usage }) + '\n');
-              }
-            } catch (e) {
-              // Skip invalid JSON
             }
+            return msg;
+          }), assistantToolMsg, toolResultMsg];
+
+          // Make the follow-up streaming request
+          const followUpController = new AbortController();
+          const followUpTimeout = setTimeout(() => followUpController.abort(), 90000);
+          const followUpRes = await fetch(fullUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model: decision.model,
+              messages: followUpMessages,
+              stream: true,
+              stream_options: { include_usage: true }
+            }),
+            signal: followUpController.signal,
+          });
+          clearTimeout(followUpTimeout);
+
+          if (!followUpRes.ok || !followUpRes.body) {
+            throw new Error(`Search follow-up request failed: ${followUpRes.status}`);
           }
+
+          const reader = followUpRes.body.getReader();
+          req.on('close', () => { reader.cancel().catch(() => {}); });
+          await streamSseToResponse(reader, res);
+        } else {
+          // Model responded without using the tool — write content directly as SSE
+          const content = firstJson.choices?.[0]?.message?.content || firstJson.message?.content || '';
+          if (content) res.write(JSON.stringify({ message: { content } }) + '\n');
+        }
+      } else {
+        // --- Normal streaming path ---
+        if (response.body) {
+          const reader = response.body.getReader();
+
+          // Propagate client disconnect to the upstream provider (stops Ollama generation)
+          req.on('close', () => {
+            reader.cancel().catch(() => {});
+          });
+
+          await streamSseToResponse(reader, res);
         }
       }
       res.end();

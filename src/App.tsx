@@ -171,6 +171,9 @@ export default function App() {
                   handleSend={chat.handleSend}
                   handleStop={chat.handleStop}
                   setActiveTab={setActiveTab}
+                  webSearchEnabled={chat.webSearchEnabled}
+                  onToggleWebSearch={() => chat.setWebSearchEnabled(v => !v)}
+                  searxngConfigured={!!(configHook.config.searxng?.url)}
                 />
               </ErrorBoundary>
             </div>

@@ -24,7 +24,8 @@ export function useChat(deps: UseChatDeps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [routingStep, setRoutingStep] = useState<'idle' | 'analyzing' | 'routing' | 'generating'>('idle');
+  const [routingStep, setRoutingStep] = useState<'idle' | 'analyzing' | 'routing' | 'searching' | 'generating'>('idle');
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -223,7 +224,8 @@ export function useChat(deps: UseChatDeps) {
         signal,
         body: JSON.stringify({
           messages: [...messages, { ...userMsg, content: fullPrompt }],
-          decision
+          decision,
+          webSearchEnabled,
         })
       });
 
@@ -250,8 +252,20 @@ export function useChat(deps: UseChatDeps) {
             if (!line.trim()) continue;
             try {
               const json = JSON.parse(line);
+
+              if (json.searching) {
+                setRoutingStep('searching');
+                setMessages(msgs =>
+                  msgs.map(m =>
+                    m.id === assistantMsg.id ? { ...m, webSearchQuery: json.query } : m
+                  )
+                );
+                continue;
+              }
+
               if (json.message?.content) {
                 accumulatedContent += json.message.content;
+                setRoutingStep('generating');
               }
 
               if (json.usage) {
@@ -322,6 +336,8 @@ export function useChat(deps: UseChatDeps) {
     setAttachments,
     isLoading,
     routingStep,
+    webSearchEnabled,
+    setWebSearchEnabled,
     fileInputRef,
     handleFileSelect,
     removeAttachment,

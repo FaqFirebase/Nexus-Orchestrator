@@ -1,4 +1,4 @@
-import { Terminal, Cpu, FileText } from 'lucide-react';
+import { Terminal, Cpu, FileText, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -47,6 +47,12 @@ export default function ChatMessage({ msg }: ChatMessageProps) {
                 {msg.decision.category}
               </div>
               <span className="text-[9px] font-mono text-zinc-600">via {msg.decision.model}{msg.decision.routerModel ? ` • routed by ${msg.decision.routerModel}` : ''}</span>
+            </div>
+          )}
+          {msg.webSearchQuery && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[9px] font-bold text-blue-400 uppercase tracking-wider">
+              <Globe className="w-3 h-3" />
+              Web Search: {msg.webSearchQuery}
             </div>
           )}
         </div>

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, X, FileText, Activity, Network, Shield, Square } from 'lucide-react';
+import { Send, Paperclip, X, FileText, Activity, Network, Shield, Square, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { Attachment } from '../../types';
 
@@ -13,11 +13,15 @@ interface ChatInputProps {
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleSend: () => void;
   handleStop: () => void;
+  webSearchEnabled: boolean;
+  onToggleWebSearch: () => void;
+  searxngConfigured: boolean;
 }
 
 export default function ChatInput({
   input, setInput, attachments, removeAttachment,
   isLoading, fileInputRef, handleFileSelect, handleSend, handleStop,
+  webSearchEnabled, onToggleWebSearch, searxngConfigured,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -80,6 +84,15 @@ export default function ChatInput({
             >
               <Paperclip className="w-4 h-4" />
             </button>
+            {searxngConfigured && (
+              <button
+                onClick={onToggleWebSearch}
+                title={webSearchEnabled ? 'Web search on — click to disable' : 'Enable web search for this message'}
+                className={`p-3 transition-colors ${webSearchEnabled ? 'text-blue-400' : 'text-zinc-500 hover:text-blue-400'}`}
+              >
+                <Globe className="w-4 h-4" />
+              </button>
+            )}
             <textarea
               ref={textareaRef}
               value={input}

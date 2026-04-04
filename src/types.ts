@@ -37,6 +37,7 @@ export interface Message {
     completion_tokens: number;
     total_tokens: number;
   };
+  webSearchQuery?: string;
 }
 
 export interface Conversation {
@@ -67,6 +68,10 @@ export interface NexusConfig {
   };
   categories: Record<ModelCategory, { models: string[]; provider: 'local' | 'cloud' }>;
   routerCacheEnabled?: boolean;
+  searxng?: {
+    url: string;
+    alwaysOn: boolean;
+  };
 }
 
 export interface User {

@@ -1,6 +1,9 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.3
+- **SearXNG web search via tool calling** — LLMs can now search the web using a self-hosted SearXNG instance. Configure the SearXNG URL in the Models tab under Web Search. Two modes: Always On (search tool included in every request) or per-chat toggle (globe icon in the chat input bar). The LLM decides when to call the tool — the server handles the full agentic loop and streams the final response. FAST category always skips search. Ollama and any OpenAI-compatible provider with tool-calling support is compatible.
+
 ### v1.1.2
 - **Request queuing** — Each user now has a per-user FIFO queue for chat requests. Concurrent requests are processed in order rather than racing. Maximum of 5 pending requests per user; a 6th returns a 503. Requests cancelled by the client while waiting in queue are skipped automatically.
 

@@ -48,6 +48,10 @@ export const DEFAULT_CONFIG: NexusConfig = {
     url: '',
     key: ''
   },
+  searxng: {
+    url: '',
+    alwaysOn: false,
+  },
   categories: {
     CODING: { models: [], provider: 'local' as 'local' | 'cloud' },
     REASONING: { models: [], provider: 'local' as 'local' | 'cloud' },

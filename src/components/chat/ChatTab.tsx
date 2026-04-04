@@ -11,7 +11,7 @@ interface ChatTabProps {
   messages: Message[];
   connectionStatus: ConnectionStatus;
   isLoading: boolean;
-  routingStep: 'idle' | 'analyzing' | 'routing' | 'generating';
+  routingStep: 'idle' | 'analyzing' | 'routing' | 'searching' | 'generating';
   input: string;
   setInput: (v: string) => void;
   attachments: Attachment[];
@@ -21,12 +21,16 @@ interface ChatTabProps {
   handleSend: () => void;
   handleStop: () => void;
   setActiveTab: (tab: 'chat' | 'models' | 'system') => void;
+  webSearchEnabled: boolean;
+  onToggleWebSearch: () => void;
+  searxngConfigured: boolean;
 }
 
 export default function ChatTab({
   messages, connectionStatus, isLoading, routingStep,
   input, setInput, attachments, removeAttachment,
   fileInputRef, handleFileSelect, handleSend, handleStop, setActiveTab,
+  webSearchEnabled, onToggleWebSearch, searxngConfigured,
 }: ChatTabProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -112,6 +116,9 @@ export default function ChatTab({
         handleFileSelect={handleFileSelect}
         handleSend={handleSend}
         handleStop={handleStop}
+        webSearchEnabled={webSearchEnabled}
+        onToggleWebSearch={onToggleWebSearch}
+        searxngConfigured={searxngConfigured}
       />
     </div>
   );
