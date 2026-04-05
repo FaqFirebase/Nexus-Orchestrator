@@ -5,6 +5,7 @@ dist
 .claude
 .codex
 .cursor
+.kilo
 .env
 .env.*
 !.env.example

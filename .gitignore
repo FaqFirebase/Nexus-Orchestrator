@@ -24,6 +24,7 @@ conversations.json
 .DS_Store
 .codex
 .vscode/
+.kilo/
 
 # Architecture diagram
 architecture.html
