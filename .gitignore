@@ -23,6 +23,7 @@ conversations.json
 .cursor/
 .DS_Store
 .codex
+.vscode/
 
 # Architecture diagram
 architecture.html
