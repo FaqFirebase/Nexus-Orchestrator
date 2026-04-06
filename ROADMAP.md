@@ -6,6 +6,7 @@
 - [ ] **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously. Model discovery aggregates across all providers. Routing targets the correct endpoint per model. Config shape: `localProviders: [{ url, key, name }]` replaces single `localUrl`/`localKey`. Backward compatible — existing `localUrl` migrates to `localProviders[0]`.
 
 ### Medium Priority
+- [ ] **Web search sources display** — Show the SearXNG results (title, URL, snippet) used by the LLM in a collapsible Sources section below the response.
 - [ ] **URL fetch/browse tool** — Add a `fetch_url` LLM tool alongside web search. Fetches a specific URL and returns the page content as plain text so the model can read it directly. Shares the same enable toggle as SearXNG web search.
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects. TCP disconnect does not propagate through Docker networking to the llama runner. UI stop works; backend keeps generating.
 
