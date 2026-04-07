@@ -16,8 +16,13 @@ data
 config.json
 conversations.json
 *.migrated
+*.db
+*.db-shm
+*.db-wal
 screenshots
 img
+docs
+tests
 LICENSE
 .gitignore
 .dockerignore
