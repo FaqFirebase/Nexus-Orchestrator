@@ -224,7 +224,7 @@ Prompts asking for current or recent information work best:
 - *"Search the web for the newest version of Y"*
 - *"What happened with Z today?"*
 
-When a search fires, the routing status shows **> Searching the Web...** with a blue globe indicator. The completed message shows a **Web Search: \<query\>** badge showing exactly what was searched.
+When a search fires, the routing status shows **> Searching the Web...** with a blue globe indicator. The completed message shows a **Web Search: \<query\>** badge showing exactly what was searched. Below the response a **Sources (N)** toggle appears — click it to expand a list of the SearXNG results used, each showing the title (as a link), URL, and snippet.
 
 **FAST category** always skips the search tool regardless of settings.
 

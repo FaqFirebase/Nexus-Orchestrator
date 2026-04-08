@@ -143,9 +143,10 @@ The router is a small model that receives a structured prompt and returns JSON:
 When `searxng.url` is configured and search is enabled for the request:
 
 1. A non-streaming first call is made with the `web_search` tool definition injected.
-2. If the model returns `tool_calls`, `runSearxngSearch()` fetches `$SEARXNG_URL/search?format=json&q=<query>` and returns the top 5 results as formatted text.
-3. A `{ searching: true, query }` SSE event is emitted to the client (renders the "Searching the Web..." indicator).
-4. A streaming follow-up call is made with the tool result appended; the response is piped to the client.
+2. If the model returns `tool_calls`, `runSearxngSearch()` fetches `$SEARXNG_URL/search?format=json&q=<query>` and returns `{ text, sources }` — formatted text for the LLM tool result and a structured array for the client.
+3. A `{ searching: true, query }` SSE event is emitted (renders the "Searching the Web..." indicator).
+4. A `{ sources: [{title, url, snippet}] }` SSE event is emitted so the client can show a Sources accordion below the response.
+5. A streaming follow-up call is made with the tool result appended; the response is piped to the client.
 
 FAST category always skips the search tool. SSRF protection applies to the SearXNG URL.
 
@@ -159,6 +160,7 @@ All chat responses stream as `text/event-stream`. Each event is a JSON object on
 |---|---|
 | `type: 'routing'` | Router decision — category, model, reasoning |
 | `searching: true, query` | Web search fired — renders searching indicator |
+| `sources: [{title, url, snippet}]` | SearXNG results — stored on message, shown as collapsible Sources accordion |
 | `content` | Token chunk |
 | `usage` | Final token counts (prompt/completion/total) |
 | `done: true` | Stream complete |
