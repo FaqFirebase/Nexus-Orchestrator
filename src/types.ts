@@ -15,6 +15,12 @@ export interface RoutingDecision {
   };
 }
 
+export interface SearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
 export interface Attachment {
   id: string;
   name: string;
@@ -38,6 +44,7 @@ export interface Message {
     total_tokens: number;
   };
   webSearchQuery?: string;
+  webSearchSources?: SearchSource[];
 }
 
 export interface Conversation {

@@ -263,6 +263,15 @@ export function useChat(deps: UseChatDeps) {
                 continue;
               }
 
+              if (json.sources) {
+                setMessages(msgs =>
+                  msgs.map(m =>
+                    m.id === assistantMsg.id ? { ...m, webSearchSources: json.sources } : m
+                  )
+                );
+                continue;
+              }
+
               if (json.message?.content) {
                 accumulatedContent += json.message.content;
                 setRoutingStep('generating');

@@ -304,21 +304,38 @@ async function streamSseToResponse(reader: ReadableStreamDefaultReader<Uint8Arra
   }
 }
 
+interface SearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+interface SearchResult {
+  text: string;
+  sources: SearchSource[];
+}
+
 // SearXNG web search helper — used by tool-calling path in handleChat
-async function runSearxngSearch(searxngUrl: string, query: string): Promise<string> {
+async function runSearxngSearch(searxngUrl: string, query: string): Promise<SearchResult> {
   try {
     const url = new URL('/search', searxngUrl);
     url.searchParams.set('q', query);
     url.searchParams.set('format', 'json');
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) return `Search failed: HTTP ${res.status}`;
+    if (!res.ok) return { text: `Search failed: HTTP ${res.status}`, sources: [] };
     const data = await res.json() as any;
-    const results = (data.results || []).slice(0, 5).map((r: any) =>
-      `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.content || r.snippet || ''}`
-    ).join('\n\n');
-    return results || 'No results found.';
+    const raw = (data.results || []).slice(0, 5) as any[];
+    const sources: SearchSource[] = raw.map((r: any) => ({
+      title: r.title || '',
+      url: r.url || '',
+      snippet: r.content || r.snippet || '',
+    }));
+    const text = sources.length
+      ? sources.map(s => `Title: ${s.title}\nURL: ${s.url}\nSnippet: ${s.snippet}`).join('\n\n')
+      : 'No results found.';
+    return { text, sources };
   } catch (err: any) {
-    return `Search error: ${err.message}`;
+    return { text: `Search error: ${err.message}`, sources: [] };
   }
 }
 
@@ -1264,7 +1281,12 @@ async function startServer() {
           // Notify the client that a search is in progress
           res.write(JSON.stringify({ searching: true, query }) + '\n');
 
-          const searchResults = await runSearxngSearch(searxngUrl, query);
+          const { text: searchResults, sources } = await runSearxngSearch(searxngUrl, query);
+
+          // Send structured sources to client for display
+          if (sources.length > 0) {
+            res.write(JSON.stringify({ sources }) + '\n');
+          }
 
           // Build messages for the follow-up streaming request
           const assistantToolMsg = isOllamaNative

@@ -1,6 +1,9 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.4
+- **Web search sources display** — After a web search completes, a collapsible **Sources** toggle appears below the assistant response showing the SearXNG results used to answer the question. Each source lists the title (as a link), URL, and snippet. Click "Sources (N)" to expand or collapse.
+
 ### v1.1.3
 - **SearXNG web search via tool calling** — LLMs can now search the web using a self-hosted SearXNG instance. Configure the SearXNG URL in the Models tab under Web Search. Two modes: Always On (search tool included in every request) or per-chat toggle (globe icon in the chat input bar). The LLM decides when to call the tool — the server handles the full agentic loop and streams the final response. FAST category always skips search. Ollama and any OpenAI-compatible provider with tool-calling support is compatible.
 

@@ -254,10 +254,10 @@ See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
 
 ## Changelog
 
+**v1.1.4** — Web search sources display. After a web search completes, a collapsible Sources toggle appears below the response showing the SearXNG results with title, URL, and snippet.
+
 **v1.1.3** — SearXNG web search via tool calling. LLMs can search the web through a self-hosted SearXNG instance. Always-on toggle or per-chat globe button. The LLM decides when to search.
 
 **v1.1.2** — Request queuing. Each user now has a per-user FIFO queue for chat requests. Concurrent requests process in order; up to 5 can be pending per user.
-
-**v1.1.1** — Session isolation fix. Logout and session expiry fully clear all in-memory state. Login modal non-dismissible when auth is required.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.

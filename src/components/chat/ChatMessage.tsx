@@ -1,4 +1,5 @@
-import { Terminal, Cpu, FileText, Globe } from 'lucide-react';
+import { useState } from 'react';
+import { Terminal, Cpu, FileText, Globe, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -26,6 +27,8 @@ interface ChatMessageProps {
 }
 
 export default function ChatMessage({ msg }: ChatMessageProps) {
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
   return (
     <div className="flex items-start gap-4">
       <div className={`mt-1 w-6 h-6 rounded flex items-center justify-center border ${
@@ -125,6 +128,41 @@ export default function ChatMessage({ msg }: ChatMessageProps) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {msg.webSearchSources && msg.webSearchSources.length > 0 && (
+          <div className="mt-2">
+            <button
+              onClick={() => setSourcesOpen(prev => !prev)}
+              className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              {sourcesOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              Sources ({msg.webSearchSources.length})
+            </button>
+            {sourcesOpen && (
+              <div className="mt-2 space-y-2 pl-1 border-l-2 border-blue-500/20">
+                {msg.webSearchSources.map((source, i) => (
+                  <div key={i} className="flex flex-col gap-0.5 px-3 py-2 rounded bg-zinc-900/50 border border-zinc-800">
+                    <div className="flex items-start gap-1.5">
+                      <ExternalLink className="w-3 h-3 mt-0.5 shrink-0 text-blue-400" />
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 hover:underline leading-tight break-all"
+                      >
+                        {source.title || source.url}
+                      </a>
+                    </div>
+                    <span className="text-[10px] font-mono text-zinc-600 truncate pl-4">{source.url}</span>
+                    {source.snippet && (
+                      <p className="text-[11px] text-zinc-400 leading-relaxed pl-4 mt-0.5">{source.snippet}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
