@@ -1,9 +1,22 @@
 export type ModelCategory = string;
 
+export interface LocalProvider {
+  name: string;
+  url: string;
+  key: string;
+}
+
+export interface CategoryModel {
+  name: string;
+  providerUrl: string;
+}
+
 export interface RoutingDecision {
   category: ModelCategory;
   model: string;
+  providerUrl?: string;
   fallbackModels?: string[];
+  fallbackProviderUrls?: string[];
   provider: 'local' | 'cloud';
   reasoning: string;
   confidence: number;
@@ -63,8 +76,11 @@ export interface Project {
 }
 
 export interface NexusConfig {
-  localUrl: string;
-  localKey: string;
+  localProviders: LocalProvider[];
+  /** @deprecated Use localProviders[0] — kept for migration path only */
+  localUrl?: string;
+  /** @deprecated Use localProviders[0] — kept for migration path only */
+  localKey?: string;
   cloudUrl: string;
   cloudKey: string;
   router: {
@@ -73,7 +89,7 @@ export interface NexusConfig {
     url: string;
     key: string;
   };
-  categories: Record<ModelCategory, { models: string[]; provider: 'local' | 'cloud' }>;
+  categories: Record<ModelCategory, { models: CategoryModel[]; provider: 'local' | 'cloud' }>;
   routerCacheEnabled?: boolean;
   searxng?: {
     url: string;
@@ -88,8 +104,17 @@ export interface User {
   createdAt: string;
 }
 
+export interface LocalProviderStatus {
+  name: string;
+  url: string;
+  online: boolean;
+  isOllama: boolean;
+  message?: string;
+}
+
 export interface ConnectionStatus {
   status: 'checking' | 'connected' | 'disconnected' | 'error';
   local?: string;
   message?: string;
+  providers?: LocalProviderStatus[];
 }

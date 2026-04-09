@@ -1,6 +1,7 @@
-import { Settings, Globe, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle, Shield, Lock, Search } from 'lucide-react';
+import { useState } from 'react';
+import { Settings, Globe, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle, Shield, Lock, Search, Plus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import type { NexusConfig } from '../../types';
+import type { NexusConfig, LocalProvider } from '../../types';
 
 interface ProviderConfigProps {
   config: NexusConfig;
@@ -15,90 +16,161 @@ interface ProviderConfigProps {
   logout: () => void;
 }
 
+const MASKED_PATTERN = /\.\.\.|^\*{4}$/;
+
+function isMasked(key: string): boolean {
+  return MASKED_PATTERN.test(key);
+}
+
+function SaveFeedback({ saveStatus, saveError }: { saveStatus: ProviderConfigProps['saveStatus']; saveError: string | null }) {
+  return (
+    <AnimatePresence>
+      {saveStatus !== 'idle' && (
+        <motion.div
+          initial={{ opacity: 0, x: 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 10 }}
+          className="flex flex-col items-end gap-1"
+        >
+          <div className="flex items-center gap-2">
+            {saveStatus === 'saving' && <Loader2 className="w-3 h-3 text-zinc-500 animate-spin" />}
+            {saveStatus === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+            {saveStatus === 'error' && <AlertCircle className="w-3 h-3 text-red-500" />}
+            <span className={`text-[9px] font-bold uppercase tracking-widest ${
+              saveStatus === 'saving' ? 'text-zinc-500' :
+              saveStatus === 'success' ? 'text-emerald-500' :
+              'text-red-500'
+            }`}>
+              {saveStatus === 'saving' ? 'Saving...' :
+               saveStatus === 'success' ? 'Config Updated' :
+               'Save Failed'}
+            </span>
+          </div>
+          {saveStatus === 'error' && saveError && (
+            <span className="text-[8px] font-mono text-red-500/80 max-w-[150px] truncate">{saveError}</span>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function ProviderConfig({
   config, setConfig, showApiKey, setShowApiKey,
   saveStatus, saveError, saveConfig,
   authRequired, isAuthorized, logout,
 }: ProviderConfigProps) {
+  const [showCloudKey, setShowCloudKey] = useState(false);
+
+  const providers: LocalProvider[] = config.localProviders?.length > 0
+    ? config.localProviders
+    : [{ name: 'Local', url: '', key: '' }];
+
+  const updateProvider = (index: number, field: keyof LocalProvider, value: string) => {
+    setConfig(prev => {
+      const updated = [...(prev.localProviders ?? [])];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, localProviders: updated };
+    });
+  };
+
+  const addProvider = () => {
+    setConfig(prev => ({
+      ...prev,
+      localProviders: [...(prev.localProviders ?? []), { name: `Provider ${(prev.localProviders?.length ?? 0) + 1}`, url: '', key: '' }],
+    }));
+  };
+
+  const removeProvider = (index: number) => {
+    setConfig(prev => {
+      const updated = (prev.localProviders ?? []).filter((_, i) => i !== index);
+      return { ...prev, localProviders: updated.length > 0 ? updated : [{ name: 'Local', url: '', key: '' }] };
+    });
+  };
+
   return (
     <div className="grid gap-6">
-      {/* Local Provider */}
+      {/* Local Providers */}
       <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
-        <div className="flex items-center gap-2">
-          <Settings className="w-4 h-4 text-emerald-500" />
-          <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Local Model/API Provider</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Settings className="w-4 h-4 text-emerald-500" />
+            <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Local Model/API Providers</h3>
+          </div>
+          <button
+            onClick={addProvider}
+            className="flex items-center gap-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] font-bold text-zinc-300 uppercase tracking-widest transition-all"
+          >
+            <Plus className="w-3 h-3" />
+            Add Provider
+          </button>
         </div>
+
         <div className="space-y-4">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Provider URL</label>
-              <input
-                type="text"
-                value={config.localUrl}
-                onChange={(e) => setConfig(prev => ({ ...prev, localUrl: e.target.value }))}
-                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
-                placeholder="http://localhost:3000"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">API Key</label>
-              <div className="relative">
+          {providers.map((provider, index) => (
+            <div key={index} className="p-4 rounded-xl bg-black/30 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
                 <input
-                  type={showApiKey ? "text" : "password"}
-                  value={config.localKey}
-                  onChange={(e) => setConfig(prev => ({ ...prev, localKey: e.target.value }))}
-                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 pr-10 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
-                  placeholder="sk-..."
+                  type="text"
+                  value={provider.name}
+                  onChange={(e) => updateProvider(index, 'name', e.target.value)}
+                  className="bg-transparent text-[10px] font-bold text-zinc-400 uppercase tracking-widest outline-none focus:text-zinc-200 transition-colors w-40"
+                  placeholder="Provider Name"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
-                >
-                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                {providers.length > 1 && (
+                  <button
+                    onClick={() => removeProvider(index)}
+                    className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                    title="Remove provider"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Provider URL</label>
+                  <input
+                    type="text"
+                    value={provider.url}
+                    onChange={(e) => updateProvider(index, 'url', e.target.value)}
+                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
+                    placeholder="http://192.168.1.x:11434"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">API Key</label>
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={isMasked(provider.key) ? provider.key : provider.key}
+                      onChange={(e) => updateProvider(index, 'key', e.target.value)}
+                      className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 pr-10 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
+                      placeholder="Leave blank for Ollama"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
+                    >
+                      {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center justify-end gap-3">
-            <AnimatePresence>
-              {saveStatus !== 'idle' && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  className="flex flex-col items-end gap-1"
-                >
-                  <div className="flex items-center gap-2">
-                    {saveStatus === 'saving' && <Loader2 className="w-3 h-3 text-zinc-500 animate-spin" />}
-                    {saveStatus === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
-                    {saveStatus === 'error' && <AlertCircle className="w-3 h-3 text-red-500" />}
-                    <span className={`text-[9px] font-bold uppercase tracking-widest ${
-                      saveStatus === 'saving' ? 'text-zinc-500' :
-                      saveStatus === 'success' ? 'text-emerald-500' :
-                      'text-red-500'
-                    }`}>
-                      {saveStatus === 'saving' ? 'Saving...' :
-                       saveStatus === 'success' ? 'Config Updated' :
-                       'Save Failed'}
-                    </span>
-                  </div>
-                  {saveStatus === 'error' && saveError && (
-                    <span className="text-[8px] font-mono text-red-500/80 max-w-[150px] truncate">
-                      {saveError}
-                    </span>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <button
-              onClick={() => saveConfig(config)}
-              disabled={saveStatus === 'saving'}
-              className="px-4 py-2 bg-emerald-500 text-black rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Update Configuration
-            </button>
-          </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-end gap-3">
+          <SaveFeedback saveStatus={saveStatus} saveError={saveError} />
+          <button
+            onClick={() => saveConfig(config)}
+            disabled={saveStatus === 'saving'}
+            className="px-4 py-2 bg-emerald-500 text-black rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Update Configuration
+          </button>
         </div>
       </div>
 
@@ -124,7 +196,7 @@ export default function ProviderConfig({
               <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Cloud API Key</label>
               <div className="relative">
                 <input
-                  type={showApiKey ? "text" : "password"}
+                  type={showCloudKey ? "text" : "password"}
                   value={config.cloudKey}
                   onChange={(e) => setConfig(prev => ({ ...prev, cloudKey: e.target.value }))}
                   className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 pr-10 text-xs font-mono text-blue-400 focus:border-blue-500/50 outline-none transition-all"
@@ -132,10 +204,10 @@ export default function ProviderConfig({
                 />
                 <button
                   type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
+                  onClick={() => setShowCloudKey(!showCloudKey)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400 transition-colors"
                 >
-                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showCloudKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>

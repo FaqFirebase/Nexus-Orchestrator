@@ -1,6 +1,13 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.6
+- **OpenAI-compat provider fixes** — Health check and model discovery now correctly probe `/v1/models` for providers whose base URL ends with `/v1` (llama-swap, LM Studio, etc.). Previous logic appended `/api/models` causing 404s and "offline" status. Model display names from llama-swap are shown in the UI while the routing key is sent in API requests. Model IDs are trimmed of whitespace at source. Long model names no longer overflow their grid cards.
+- **Slow-loading provider timeout** — Per-attempt chat timeout raised from 60s to 300s, configurable via `CHAT_TIMEOUT_MS` env var. Overall request timeout scales to `4×` the per-attempt value. Model-loading retry backoff extended from 3 retries at 5s intervals to 5 retries at 30s intervals (up to 150s wait) to accommodate providers like llama-swap that take time to swap models.
+
+### v1.1.5
+- **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, and any other OpenAI-compatible endpoint simultaneously. Model discovery aggregates across all providers and tags each model with its source. Category assignments store the provider URL alongside the model name so routing targets the correct endpoint. Fallback chains work across providers. Config shape: `localProviders: [{ name, url, key }]`. Existing `localUrl`/`localKey` configs migrate automatically on first load.
+
 ### v1.1.4
 - **Web search sources display** — After a web search completes, a collapsible **Sources** toggle appears below the assistant response showing the SearXNG results used to answer the question. Each source lists the title (as a link), URL, and snippet. Click "Sources (N)" to expand or collapse.
 

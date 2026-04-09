@@ -75,10 +75,15 @@ function deleteUserSessions(userId: string): void {
   }
 }
 
+const DEFAULT_LOCAL_URL = "http://localhost:11434";
+
 // Default configuration
 const DEFAULT_CONFIG = {
-  localUrl: process.env.LOCAL_URL || "http://localhost:11434",
-  localKey: process.env.LOCAL_KEY || "",
+  localProviders: [{
+    name: 'Local',
+    url: process.env.LOCAL_URL || DEFAULT_LOCAL_URL,
+    key: process.env.LOCAL_KEY || "",
+  }],
   cloudUrl: process.env.CLOUD_URL || process.env.CLOUD_API_URL || "",
   cloudKey: process.env.CLOUD_KEY || process.env.CLOUD_API_KEY || process.env.GEMINI_API_KEY || "",
   router: {
@@ -88,43 +93,37 @@ const DEFAULT_CONFIG = {
     key: process.env.ROUTER_KEY || ''
   },
   categories: {
-    CODING: {
-      models: [],
-      provider: 'local'
-    },
-    REASONING: {
-      models: [],
-      provider: 'local'
-    },
-    CREATIVE: {
-      models: [],
-      provider: 'local'
-    },
-    VISION: {
-      models: [],
-      provider: 'local'
-    },
-    GENERAL: {
-      models: [],
-      provider: 'local'
-    },
-    DOCUMENT: {
-      models: [],
-      provider: 'local'
-    },
-    FAST: {
-      models: [],
-      provider: 'local'
-    },
-    SECURITY: {
-      models: [],
-      provider: 'local'
-    }
+    CODING: { models: [], provider: 'local' },
+    REASONING: { models: [], provider: 'local' },
+    CREATIVE: { models: [], provider: 'local' },
+    VISION: { models: [], provider: 'local' },
+    GENERAL: { models: [], provider: 'local' },
+    DOCUMENT: { models: [], provider: 'local' },
+    FAST: { models: [], provider: 'local' },
+    SECURITY: { models: [], provider: 'local' },
   }
 };
 
 // Tracks which base URLs are confirmed Ollama instances (detected via /api/tags during health check)
 const ollamaUrls = new Set<string>();
+
+/** Returns the first configured local provider's URL and key. */
+function getFirstLocalProvider(config: any): { url: string; key: string } {
+  if (config.localProviders?.length > 0) {
+    const p = config.localProviders[0];
+    return { url: (p.url || DEFAULT_LOCAL_URL).replace(/\/$/, ""), key: p.key || '' };
+  }
+  return { url: (config.localUrl || DEFAULT_LOCAL_URL).replace(/\/$/, ""), key: config.localKey || '' };
+}
+
+/** Finds the key for a given provider URL. Returns empty string if not found. */
+function getProviderKey(config: any, providerUrl: string): string {
+  const normalized = providerUrl.replace(/\/$/, "");
+  const found = (config.localProviders || []).find((p: any) =>
+    (p.url || '').replace(/\/$/, "") === normalized
+  );
+  return found?.key || '';
+}
 
 // Router result cache — keyed by userId + prompt hash, stores routing decisions with TTL
 const ROUTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -266,9 +265,13 @@ const adminMiddleware = (req: express.Request, res: express.Response, next: expr
   next();
 };
 
-// Helper to get the user's config, falling back to defaults
+// Helper to get the user's config, falling back to defaults.
+// Migration (string models → CategoryModel, localUrl → localProviders) is applied in db.ts readUserConfig.
 function getUserConfig(userId: string): any {
-  return readUserConfig(userId, ENCRYPTION_SECRET) || DEFAULT_CONFIG;
+  const stored = readUserConfig(userId, ENCRYPTION_SECRET);
+  if (stored) return stored;
+  // Return a deep clone of the default so callers can mutate freely
+  return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 }
 
 // Config and conversations init/migration handled by db.ts initDb()
@@ -607,7 +610,11 @@ async function startServer() {
         router: {
           ...config.router,
           key: config.router?.key ? maskKey(config.router.key) : ""
-        }
+        },
+        localProviders: (config.localProviders || []).map((p: any) => ({
+          ...p,
+          key: p.key ? maskKey(p.key) : "",
+        })),
       };
 
       res.json(maskedConfig);
@@ -636,6 +643,17 @@ async function startServer() {
           }
         }
       }
+      if (newConfig.localProviders) {
+        for (let i = 0; i < newConfig.localProviders.length; i++) {
+          const provUrl = newConfig.localProviders[i].url;
+          if (provUrl) {
+            const check = validateUrl(provUrl);
+            if (!check.valid) {
+              return res.status(400).json({ error: `Invalid localProviders[${i}].url: ${check.reason}` });
+            }
+          }
+        }
+      }
 
       log.info({ userId: req.userId }, 'Saving user configuration');
 
@@ -652,6 +670,15 @@ async function startServer() {
       if (newConfig.router && newConfig.router.key && typeof newConfig.router.key === 'string' && (newConfig.router.key.includes("...") || newConfig.router.key === "****")) {
         newConfig.router.key = currentConfig.router?.key || "";
       }
+      // Restore masked keys in localProviders
+      if (newConfig.localProviders) {
+        for (let i = 0; i < newConfig.localProviders.length; i++) {
+          const incomingKey = newConfig.localProviders[i].key;
+          if (incomingKey && (incomingKey.includes("...") || incomingKey === "****")) {
+            newConfig.localProviders[i].key = currentConfig.localProviders?.[i]?.key || '';
+          }
+        }
+      }
 
       writeUserConfig(req.userId!, newConfig, ENCRYPTION_SECRET);
 
@@ -662,204 +689,219 @@ async function startServer() {
     }
   });
 
-  // Health check (uses requesting user's config)
-  app.get("/api/health", authMiddleware, async (req, res) => {
+  /**
+   * Returns ordered probe candidates for a provider base URL.
+   *
+   * Cases:
+   *   {base}/v1        → try {base}/v1/models only (OpenAI-compat with explicit /v1, e.g. llama-swap)
+   *   {base}/api       → try {base}/api/models, then {base}/api/tags (Open WebUI style)
+   *   {base}           → try {base}/v1/models, {base}/api/models, {base}/api/tags
+   *
+   * isOllama=true probes use the native Ollama /api/tags response format (models[]).
+   * isOllama=false probes use the OpenAI format (data[]).
+   */
+  function buildProbeUrls(baseUrl: string): Array<{ url: string; isOllama: boolean }> {
+    const base = baseUrl.replace(/\/$/, "");
+    if (base.endsWith('/v1')) {
+      return [{ url: `${base}/models`, isOllama: false }];
+    }
+    if (base.endsWith('/api')) {
+      return [
+        { url: `${base}/models`, isOllama: false },
+        { url: `${base}/tags`, isOllama: true },
+      ];
+    }
+    return [
+      { url: `${base}/v1/models`, isOllama: false },
+      { url: `${base}/api/models`, isOllama: false },
+      { url: `${base}/api/tags`, isOllama: true },
+    ];
+  }
+
+  // Probes a single provider URL and returns its status
+  async function checkProvider(providerUrl: string, providerKey: string, providerName: string): Promise<{
+    name: string; url: string; online: boolean; isOllama: boolean; message?: string;
+  }> {
+    let url = providerUrl;
+    if (!url.startsWith('http')) url = `http://${url}`;
+    url = url.replace(/\/$/, "");
+
+    const selfPort = PORT.toString();
+    if (url.includes(`localhost:${selfPort}`) || url.includes(`0.0.0.0:${selfPort}`) || url.includes(`127.0.0.1:${selfPort}`)) {
+      return {
+        name: providerName, url, online: false, isOllama: false,
+        message: `⚠️ Provider URL points to Nexus Orchestrator itself (port ${selfPort}). Use your LLM endpoint instead.`,
+      };
+    }
+
+    const headers: any = { 'User-Agent': 'NexusOrchestrator/1.0', 'Accept': 'application/json' };
+    if (providerKey) headers['Authorization'] = `Bearer ${providerKey}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
-      const config = getUserConfig(req.userId!);
-      let localUrl = config.localUrl || "http://localhost:11434";
-      if (!localUrl.startsWith('http')) localUrl = `http://${localUrl}`;
-      localUrl = localUrl.replace(/\/$/, "");
-      const localKey = config.localKey || "";
+      log.debug({ url, name: providerName }, 'Checking provider health');
 
-      // Prevent self-reference loops
-      const selfPort = PORT.toString();
-      if (localUrl.includes(`localhost:${selfPort}`) || localUrl.includes(`0.0.0.0:${selfPort}`) || localUrl.includes(`127.0.0.1:${selfPort}`)) {
-        return res.json({
-          status: "disconnected",
-          local: localUrl,
-          message: `⚠️ Provider URL is pointing to the Nexus Orchestrator itself (port ${selfPort}). Please update the Provider URL in the Models tab to your actual local LLM endpoint.`
-        });
-      }
-
-      log.debug({ url: localUrl }, 'Checking health');
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const headers: any = {
-        'User-Agent': 'NexusOrchestrator/1.0',
-        'Accept': 'application/json'
-      };
-      if (localKey) {
-        headers['Authorization'] = `Bearer ${localKey}`;
-      }
-
-      // Helper to construct clean API URLs
-      const getApiUrl = (baseUrl: string, endpoint: string) => {
-        let url = baseUrl.replace(/\/$/, "");
-        if (url.endsWith('/api')) {
-          return `${url}/${endpoint}`;
-        }
-        return `${url}/api/${endpoint}`;
-      };
-
-      // Try OpenAI/Open WebUI models endpoint first
-      let response = await fetch(getApiUrl(localUrl, 'models'), {
-        signal: controller.signal,
-        headers
-      }).catch(err => {
-        if (err.name !== 'AbortError') {
-          log.debug({ url: localUrl, err: err.message }, 'Could not reach models endpoint');
-        }
-        return null;
-      });
-
-      // If that fails or 404s/405s, try Ollama's native tags endpoint
+      const probes = buildProbeUrls(url);
+      let response: Response | null = null;
       let isOllama = false;
-      if (!response || response.status === 404 || response.status === 405) {
-        response = await fetch(getApiUrl(localUrl, 'tags'), {
-          signal: controller.signal,
-          headers
-        }).catch(err => {
-          if (err.name !== 'AbortError') {
-            log.debug({ url: localUrl, err: err.message }, 'Could not reach tags endpoint');
-          }
-          return null;
-        });
-        if (response && response.ok) isOllama = true;
+      let lastStatus: number | undefined;
+
+      for (const probe of probes) {
+        response = await fetch(probe.url, { signal: controller.signal, headers }).catch(() => null);
+        if (response?.ok) {
+          isOllama = probe.isOllama;
+          break;
+        }
+        lastStatus = response?.status;
+        response = null;
       }
 
       clearTimeout(timeoutId);
 
-      // Cache Ollama detection so chat endpoint can use native /api/chat
-      const baseKey = localUrl.replace(/\/$/, "");
-      if (isOllama) {
-        ollamaUrls.add(baseKey);
-      } else {
-        ollamaUrls.delete(baseKey);
+      // Update Ollama detection cache
+      const baseKey = url.replace(/\/$/, "");
+      if (isOllama) ollamaUrls.add(baseKey); else ollamaUrls.delete(baseKey);
+
+      if (response?.ok) {
+        return { name: providerName, url, online: true, isOllama };
       }
 
-      if (response && response.ok) {
-        res.json({ status: "connected", local: localUrl, isOllama });
-      } else if (response) {
-        const text = await response.text().catch(() => "No body");
-        log.warn({ status: response.status, statusText: response.statusText, body: text }, 'Local provider health check failed');
-
-        let tip = "";
-        if (response.status === 405) {
-          tip = " \n\n💡 TIP: 'Method Not Allowed' (405) often means the URL path is incorrect. If using Open WebUI, ensure your URL ends with '/api'.";
-        }
-
-        res.json({
-          status: "error",
-          local: localUrl,
-          message: `Provider returned ${response.status}: ${response.statusText}.${tip}`
-        });
-      } else {
-        throw new Error("Network error or timeout. Ensure the URL is correct and the service is running.");
+      let tip = "";
+      if (lastStatus === 405) {
+        tip = " If using Open WebUI, ensure the URL ends with '/api'.";
       }
+      return {
+        name: providerName, url, online: false, isOllama: false,
+        message: lastStatus
+          ? `Provider returned ${lastStatus}.${tip}`
+          : 'Network error or timeout.',
+      };
     } catch (error: any) {
-      const config = getUserConfig(req.userId!);
-      const localUrl = config.localUrl || "http://localhost:11434";
-      log.error({ url: localUrl, err: error }, 'Health check error');
-      const isLocalhost = localUrl.includes('localhost') || localUrl.includes('127.0.0.1');
-      const isLocalIp = localUrl.includes('192.168.') || localUrl.includes('10.') || localUrl.includes('172.');
-
+      clearTimeout(timeoutId);
+      const isLocalhost = url.includes('localhost') || url.includes('127.0.0.1');
       let message = `Could not reach provider: ${error.message}`;
       if (isLocalhost) {
-        message += " \n\n⚠️ CRITICAL: 'localhost' refers to the Nexus Orchestrator container itself. You must use your host's IP address (e.g., 192.168.1.x) or 'host.docker.internal' if configured.";
-      } else if (isLocalIp) {
-        message += " \n\n⚠️ TIP: If this app is hosted in the cloud, it cannot reach your home network directly. Use a tunnel (Ngrok/Cloudflare).";
+        message += " ⚠️ 'localhost' inside Docker refers to the container. Use your host's LAN IP instead.";
       }
+      return { name: providerName, url, online: false, isOllama: false, message };
+    }
+  }
 
+  // Health check (uses requesting user's config — checks all configured providers)
+  app.get("/api/health", authMiddleware, async (req, res) => {
+    try {
+      const config = getUserConfig(req.userId!);
+      const providers: Array<{ name: string; url: string; key: string }> = config.localProviders?.length > 0
+        ? config.localProviders
+        : [{ name: 'Local', url: config.localUrl || DEFAULT_LOCAL_URL, key: config.localKey || '' }];
+
+      const results = await Promise.all(
+        providers.map((p: any) => checkProvider(p.url || DEFAULT_LOCAL_URL, p.key || '', p.name || 'Local'))
+      );
+
+      const anyOnline = results.some(r => r.online);
       res.json({
-        status: "disconnected",
-        local: localUrl,
-        message
+        status: anyOnline ? 'connected' : 'disconnected',
+        local: results[0]?.url,
+        isOllama: results[0]?.isOllama,
+        providers: results,
       });
+    } catch (error: any) {
+      log.error({ err: error }, 'Health check error');
+      res.json({ status: 'disconnected', message: error.message });
     }
   });
 
-  // Get available models (uses requesting user's config)
+  /** Fetches models from a single provider URL and returns them with providerUrl/providerName attached. */
+  async function discoverModelsFromProvider(
+    providerUrl: string, providerKey: string, providerName: string
+  ): Promise<any[]> {
+    let url = providerUrl;
+    if (!url.startsWith('http')) url = `http://${url}`;
+    url = url.replace(/\/$/, "");
+
+    const headers: any = { 'User-Agent': 'NexusOrchestrator/1.0', 'Accept': 'application/json' };
+    if (providerKey) headers['Authorization'] = `Bearer ${providerKey}`;
+
+    const tag = { providerUrl: url, providerName };
+
+    for (const probe of buildProbeUrls(url)) {
+      const res = await fetch(probe.url, { headers }).catch(() => null);
+      if (!res?.ok) continue;
+
+      const contentType = res.headers.get("content-type");
+      if (!contentType?.includes("application/json")) continue;
+
+      const data = await res.json();
+
+      if (probe.isOllama) {
+        // Ollama native /api/tags format
+        const models = (data.models || []).map((m: any) => {
+          const details = m.details || {};
+          const id = m.name || '';
+          if (!details.parameter_size) {
+            const paramMatch = id.match(/(\d+b)/i);
+            if (paramMatch) details.parameter_size = paramMatch[1].toUpperCase();
+          }
+          if (!details.quantization_level) {
+            const quantMatch = id.match(/(q\d[^\s:]*|fp\d+)/i);
+            if (quantMatch) details.quantization_level = quantMatch[1].toUpperCase();
+          }
+          return { name: m.name, size: m.size, details, ...tag };
+        });
+        if (models.length > 0) return models;
+      } else {
+        // OpenAI /v1/models or /api/models format
+        // name = m.id (the API routing key sent in requests)
+        // displayName = m.name if present (human-readable label, e.g. from llama-swap)
+        const models = (data.data || []).map((m: any) => {
+          const id = (m.id || '').trim();
+          const displayName: string | undefined = m.name && m.name !== id ? m.name : undefined;
+          const details: any = { family: m.owned_by || 'openai' };
+          const searchStr = displayName || id;
+          const paramMatch = searchStr.match(/(\d+b)/i);
+          if (paramMatch) details.parameter_size = paramMatch[1].toUpperCase();
+          const quantMatch = id.match(/(q\d[^\s:]*|fp\d+)/i);
+          if (quantMatch) details.quantization_level = quantMatch[1].toUpperCase();
+          return { name: id, displayName, size: 0, details, ...tag };
+        });
+        if (models.length > 0) return models;
+      }
+    }
+
+    return [];
+  }
+
+  // Get available models — aggregates from all configured local providers
   app.get("/api/models", authMiddleware, async (req, res) => {
     try {
       const config = getUserConfig(req.userId!);
-      let localUrl = config.localUrl || "http://localhost:11434";
-      if (!localUrl.startsWith('http')) localUrl = `http://${localUrl}`;
-      localUrl = localUrl.replace(/\/$/, "");
-      const localKey = config.localKey || "";
+      const providers: Array<{ name: string; url: string; key: string }> = config.localProviders?.length > 0
+        ? config.localProviders
+        : [{ name: 'Local', url: config.localUrl || DEFAULT_LOCAL_URL, key: config.localKey || '' }];
 
-      const headers: any = {
-        'User-Agent': 'NexusOrchestrator/1.0',
-        'Accept': 'application/json'
-      };
-      if (localKey) {
-        headers['Authorization'] = `Bearer ${localKey}`;
-      }
+      const results = await Promise.allSettled(
+        providers.map((p: any) =>
+          discoverModelsFromProvider(p.url || DEFAULT_LOCAL_URL, p.key || '', p.name || 'Local')
+        )
+      );
 
-      const getApiUrl = (baseUrl: string, endpoint: string) => {
-        let url = baseUrl.replace(/\/$/, "");
-        if (url.endsWith('/api')) {
-          return `${url}/${endpoint}`;
-        }
-        return `${url}/api/${endpoint}`;
-      };
-
-      // Try OpenAI/Open WebUI format first
-      let response = await fetch(getApiUrl(localUrl, 'models'), { headers });
-
-      if (response.ok) {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          const data = await response.json();
-          const models = data.data?.map((m: any) => {
-            const id = m.id || '';
-            const details: any = { family: m.owned_by || 'openai' };
-
-            // Extract parameter size (e.g., 7b, 13b)
-            const paramMatch = id.match(/(\d+b)/i);
-            if (paramMatch) details.parameter_size = paramMatch[1].toUpperCase();
-
-            // Extract quantization (e.g., q4, q4_k_m, fp16)
-            const quantMatch = id.match(/(q\d[^\s:]*|fp\d+)/i);
-            if (quantMatch) details.quantization_level = quantMatch[1].toUpperCase();
-
-            return {
-              name: id,
-              size: 0,
-              details
-            };
-          }) || [];
-          return res.json(models);
+      const allModels: any[] = [];
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          allModels.push(...result.value);
         }
       }
 
-      // Fallback to Ollama native tags
-      response = await fetch(getApiUrl(localUrl, 'tags'), { headers });
-      if (response.ok) {
-        const data = await response.json();
-        const models = data.models?.map((m: any) => {
-          const details = m.details || {};
-
-          // If details are missing, try to extract from name (common if proxying)
-          if (!details.parameter_size || !details.quantization_level) {
-            const id = m.name || '';
-            const paramMatch = id.match(/(\d+b)/i);
-            if (paramMatch && !details.parameter_size) details.parameter_size = paramMatch[1].toUpperCase();
-
-            const quantMatch = id.match(/(q\d[^\s:]*|fp\d+)/i);
-            if (quantMatch && !details.quantization_level) details.quantization_level = quantMatch[1].toUpperCase();
-          }
-
-          return {
-            name: m.name,
-            size: m.size,
-            details
-          };
-        }) || [];
-        return res.json(models);
+      if (allModels.length === 0 && providers.length > 0) {
+        // All providers failed — surface the error rather than empty array
+        res.status(502).json({ error: 'No models found. Verify your provider URLs and connectivity.' });
+        return;
       }
 
-      res.status(response.status || 500).json({ error: `Provider returned ${response.status || 500}: ${response.statusText || 'Internal Server Error'}` });
+      res.json(allModels);
     } catch (error: any) {
       log.error({ err: error }, 'Model fetch error');
       res.status(500).json({ error: `Connection failed: ${error.message}` });
@@ -886,10 +928,11 @@ async function startServer() {
       let url = router.url;
       let key = router.key;
 
-      // Fallback logic: if no custom router URL, always use local provider
+      // Fallback logic: if no custom router URL, always use first local provider
       if (!url) {
-        url = config.localUrl || "http://localhost:11434";
-        key = router.key || config.localKey || "";
+        const first = getFirstLocalProvider(config);
+        url = first.url;
+        key = router.key || first.key;
       }
 
       const controller = new AbortController();
@@ -1014,21 +1057,34 @@ async function startServer() {
     try {
       const config = getUserConfig(req.userId!);
 
-      // Determine provider URL and Key based on decision
-      let baseUrl = config.localUrl || "http://localhost:11434";
-      let apiKey = config.localKey || "";
+      // Determine base provider URL and key for the primary model
+      let baseUrl: string;
+      let apiKey: string;
 
       if (decision.provider === 'cloud' || decision.provider === 'gemini') {
-        // Use cloud settings, fallback to router settings if available
         baseUrl = config.cloudUrl || config.router.url;
         apiKey = config.cloudKey || config.router.key;
+      } else if (decision.providerUrl) {
+        baseUrl = decision.providerUrl;
+        apiKey = getProviderKey(config, decision.providerUrl);
+      } else {
+        const first = getFirstLocalProvider(config);
+        baseUrl = first.url;
+        apiKey = first.key;
       }
 
       log.info({ model: decision.model, category: decision.category, provider: baseUrl }, 'Routing chat request');
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      // Per-attempt timeout: how long a single fetch may wait (covers slow model loads/swaps).
+      // Providers like llama-swap can take several minutes to unload one model and load another.
+      // Override with CHAT_TIMEOUT_MS env var (milliseconds).
+      const attemptTimeoutMs = parseInt(process.env.CHAT_TIMEOUT_MS || '', 10) || 300000; // 5 min default
 
+      const controller = new AbortController();
+      // Overall timeout covers all model attempts — 4× the per-attempt value
+      const timeoutId = setTimeout(() => controller.abort(), attemptTimeoutMs * 4);
+
+      // Headers will be mutated per model attempt to set the correct Authorization
       const headers: any = {
         "Content-Type": "application/json",
         "User-Agent": "NexusOrchestrator/1.0",
@@ -1038,7 +1094,6 @@ async function startServer() {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
-      // Ensure URL ends correctly for OpenAI chat completions
       let fullUrl = baseUrl.replace(/\/$/, "");
 
       const getEndpoints = (base: string) => {
@@ -1082,10 +1137,22 @@ async function startServer() {
       };
 
       const hasAttachments = messages.some((m: any) => m.attachments && m.attachments.length > 0);
-      const attemptTimeoutMs = 60000;
 
-      // Build ordered list of models to try: primary model first, then fallbacks
-      const modelsToTry = [decision.model, ...(decision.fallbackModels || [])].filter(Boolean);
+      // Build ordered list of { model, baseUrl, apiKey } to try — each fallback may come from a different provider
+      const buildModelsToTry = (): Array<{ model: string; baseUrl: string; apiKey: string }> => {
+        const result: Array<{ model: string; baseUrl: string; apiKey: string }> = [];
+        if (decision.model) result.push({ model: decision.model, baseUrl, apiKey });
+        (decision.fallbackModels || []).forEach((m: string, i: number) => {
+          if (!m) return;
+          const fbUrl = decision.fallbackProviderUrls?.[i] || baseUrl;
+          const fbKey = decision.provider === 'cloud' || decision.provider === 'gemini'
+            ? apiKey
+            : getProviderKey(config, fbUrl) || apiKey;
+          result.push({ model: m, baseUrl: fbUrl, apiKey: fbKey });
+        });
+        return result;
+      };
+      const modelsToTry = buildModelsToTry();
 
       // Web search tool calling — enabled when searxng is configured and not FAST category
       const searxngUrl = config.searxng?.url || '';
@@ -1114,12 +1181,19 @@ async function startServer() {
       let lastError: any = null;
 
       for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
-        const currentModel = modelsToTry[modelIdx];
-        const candidateUrls = getEndpoints(baseUrl);
+        const { model: currentModel, baseUrl: modelBaseUrl, apiKey: modelApiKey } = modelsToTry[modelIdx];
+        const candidateUrls = getEndpoints(modelBaseUrl);
         const loadingRetries = new Map<string, number>();
 
+        // Update Authorization for this model's provider
+        if (modelApiKey) {
+          headers['Authorization'] = `Bearer ${modelApiKey}`;
+        } else {
+          delete headers['Authorization'];
+        }
+
         if (modelIdx > 0) {
-          log.info({ failedModel: modelsToTry[modelIdx - 1], nextModel: currentModel, attempt: modelIdx + 1, total: modelsToTry.length }, 'Falling back to next model in pool');
+          log.info({ failedModel: modelsToTry[modelIdx - 1].model, nextModel: currentModel, attempt: modelIdx + 1, total: modelsToTry.length }, 'Falling back to next model in pool');
         }
 
         let urlIndex = 0;
@@ -1201,12 +1275,13 @@ async function startServer() {
               continue;
             }
 
-            // If model is still loading, wait and retry the same URL (up to 3 times)
+            // If model is still loading, wait and retry the same URL.
+            // Providers like llama-swap can take 1–3 min to swap models; use progressive waits.
             if (attempt.status === 500 && (errText.includes("loading model") || errText.includes("model loading"))) {
               const retries = (loadingRetries.get(url) || 0) + 1;
               loadingRetries.set(url, retries);
-              if (retries <= 3) {
-                const waitMs = retries * 5000; // 5s, 10s, 15s
+              if (retries <= 5) {
+                const waitMs = retries * 30000; // 30s, 60s, 90s, 120s, 150s
                 log.info({ url, retry: retries, waitMs }, 'Model loading — waiting before retry');
                 await new Promise(resolve => setTimeout(resolve, waitMs));
                 continue; // retry same URL — don't increment urlIndex
@@ -1255,7 +1330,7 @@ async function startServer() {
             ? " \n\n💡 TIP: Vision/large models can take time to load. Wait a moment and try again — Ollama may still be loading the model into memory."
             : " \n\n💡 TIP: Request timed out. Please verify your local provider is active and the model is loaded.";
         }
-        const modelsTriedStr = modelsToTry.length > 1 ? ` Tried models: ${modelsToTry.join(', ')}.` : '';
+        const modelsTriedStr = modelsToTry.length > 1 ? ` Tried models: ${modelsToTry.map(m => m.model).join(', ')}.` : '';
         throw new Error(`Failed to connect to any provider endpoint.${modelsTriedStr} Last error (${status || 'Fetch Failed'}): ${lastError?.text || lastError?.message || 'Unknown error'}${tip}`);
       }
 

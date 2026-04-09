@@ -23,7 +23,7 @@ describe('loginSchema', () => {
 });
 
 describe('configSchema', () => {
-  it('accepts valid config', () => {
+  it('accepts valid config with legacy localUrl', () => {
     const result = configSchema.safeParse({
       localUrl: 'http://localhost:11434',
       localKey: '',
@@ -32,6 +32,45 @@ describe('configSchema', () => {
       router: { provider: 'openai', model: 'gpt-4', url: '', key: '' },
       categories: {
         CODING: { models: ['model-a'], provider: 'local' },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts config with localProviders array', () => {
+    const result = configSchema.safeParse({
+      localProviders: [
+        { name: 'Ollama', url: 'http://192.168.1.50:11434', key: '' },
+        { name: 'LlamaCPP', url: 'http://192.168.1.51:8080', key: 'abc' },
+      ],
+      cloudUrl: '',
+      cloudKey: '',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts category models as CategoryModel objects', () => {
+    const result = configSchema.safeParse({
+      categories: {
+        CODING: {
+          models: [
+            { name: 'codellama', providerUrl: 'http://192.168.1.50:11434' },
+            { name: 'deepseek-coder', providerUrl: 'http://192.168.1.51:8080' },
+          ],
+          provider: 'local',
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts mixed legacy string and CategoryModel entries in models array', () => {
+    const result = configSchema.safeParse({
+      categories: {
+        CODING: {
+          models: ['legacy-string-model', { name: 'new-model', providerUrl: 'http://localhost:11434' }],
+          provider: 'local',
+        },
       },
     });
     expect(result.success).toBe(true);
@@ -74,6 +113,26 @@ describe('chatSchema', () => {
     const result = chatSchema.safeParse({
       messages: [{ role: 'user', content: 'hello' }],
       decision: validDecision,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts decision with providerUrl', () => {
+    const result = chatSchema.safeParse({
+      messages: [{ role: 'user', content: 'hello' }],
+      decision: { ...validDecision, providerUrl: 'http://192.168.1.50:11434' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts decision with fallbackProviderUrls', () => {
+    const result = chatSchema.safeParse({
+      messages: [{ role: 'user', content: 'hello' }],
+      decision: {
+        ...validDecision,
+        fallbackModels: ['model-b'],
+        fallbackProviderUrls: ['http://192.168.1.51:8080'],
+      },
     });
     expect(result.success).toBe(true);
   });

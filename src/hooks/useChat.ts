@@ -67,7 +67,8 @@ export function useChat(deps: UseChatDeps) {
     const modelList = localModels.map(m => m.name).join(', ');
 
     const categoriesPrompt = Object.entries(config.categories).map(([cat, cfg]) => {
-      return `- ${cat}: ${cfg.models.join(', ')} (${cfg.provider})`;
+      const modelNames = cfg.models.map((m: any) => (typeof m === 'string' ? m : m.name)).join(', ');
+      return `- ${cat}: ${modelNames} (${cfg.provider})`;
     }).join('\n');
 
     const systemPrompt = `Analyze this user prompt and decide which model category is best.
@@ -168,31 +169,58 @@ export function useChat(deps: UseChatDeps) {
       const imageAttachments = (userMsg.attachments || []).filter(a => a.type.startsWith('image/'));
       const docAttachments = (userMsg.attachments || []).filter(a => !a.type.startsWith('image/'));
 
+      /** Extracts a plain model name from a CategoryModel or legacy string entry. */
+      const modelName = (m: any): string => (typeof m === 'string' ? m : m?.name ?? '');
+      const providerUrl = (m: any): string => (typeof m === 'string' ? '' : m?.providerUrl ?? '');
+
+      /** Builds fallback model names and their corresponding provider URLs from a category pool,
+       *  excluding the model already chosen as primary. */
+      const buildFallbacks = (models: any[], primaryName: string) => {
+        const rest = models.filter(m => modelName(m) !== primaryName);
+        return {
+          fallbackModels: rest.map(modelName),
+          fallbackProviderUrls: rest.map(providerUrl),
+        };
+      };
+
       let decision: RoutingDecision;
       if (imageAttachments.length > 0 && docAttachments.length === 0) {
         const visionCfg = config.categories['VISION'];
+        const primary = visionCfg?.models?.[0];
+        const primaryName = modelName(primary);
         decision = {
           category: 'VISION',
-          model: visionCfg?.models?.[0] || '',
-          fallbackModels: visionCfg?.models?.slice(1) || [],
+          model: primaryName,
+          providerUrl: providerUrl(primary),
+          ...buildFallbacks(visionCfg?.models ?? [], primaryName),
           provider: visionCfg?.provider || 'local',
           reasoning: 'Image attachment detected',
           confidence: 1.0,
         };
       } else if (docAttachments.length > 0 && imageAttachments.length === 0) {
         const docCfg = config.categories['DOCUMENT'];
+        const primary = docCfg?.models?.[0];
+        const primaryName = modelName(primary);
         decision = {
           category: 'DOCUMENT',
-          model: docCfg?.models?.[0] || '',
-          fallbackModels: docCfg?.models?.slice(1) || [],
+          model: primaryName,
+          providerUrl: providerUrl(primary),
+          ...buildFallbacks(docCfg?.models ?? [], primaryName),
           provider: docCfg?.provider || 'local',
           reasoning: 'Document attachment detected',
           confidence: 1.0,
         };
       } else {
         decision = await routeIntent(input || "Analyze attached files", (userMsg.attachments?.length || 0) > 0);
-        const categoryModels = config.categories[decision.category]?.models || [];
-        decision.fallbackModels = categoryModels.filter(m => m !== decision.model);
+        // Fill in providerUrl for the primary model from the category config
+        const categoryModels = config.categories[decision.category]?.models ?? [];
+        if (decision.provider !== 'cloud') {
+          const matched = categoryModels.find((m: any) => modelName(m) === decision.model);
+          if (matched) decision.providerUrl = providerUrl(matched);
+        }
+        const { fallbackModels, fallbackProviderUrls } = buildFallbacks(categoryModels, decision.model);
+        decision.fallbackModels = fallbackModels;
+        decision.fallbackProviderUrls = fallbackProviderUrls;
       }
       setRoutingStep('routing');
 
