@@ -28,15 +28,15 @@ export default function DiscoveredModels({
 
       {localModels.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-          {localModels.map((model) => (
+          {localModels.map((model, idx) => (
             <div
-              key={model.name}
+              key={`${model.providerUrl ?? ''}-${model.name}-${idx}`}
               onClick={() => {
                 setConfig(prev => ({ ...prev, router: { ...prev.router, model: model.name } }));
               }}
-              className="p-3 rounded-xl bg-black/40 border border-zinc-800/50 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all group cursor-pointer relative"
+              className="p-3 rounded-xl bg-black/40 border border-zinc-800/50 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all group cursor-pointer relative overflow-hidden min-w-0"
             >
-              <div className="text-[10px] font-mono text-zinc-300 truncate mb-1 group-hover:text-emerald-400">{model.name}</div>
+              <div className="text-[10px] font-mono text-zinc-300 truncate mb-1 group-hover:text-emerald-400" title={model.displayName || model.name}>{model.displayName || model.name}</div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[8px] font-mono text-zinc-600">{model.size > 0 ? (model.size / (1024 * 1024 * 1024)).toFixed(1) + 'GB' : 'Cloud'}</span>
@@ -50,6 +50,11 @@ export default function DiscoveredModels({
                     {model.details?.quantization_level && (
                       <span className="text-[7px] font-mono text-zinc-500 uppercase">{model.details.quantization_level}</span>
                     )}
+                  </div>
+                )}
+                {model.providerName && (
+                  <div className="border-t border-zinc-800/30 pt-1">
+                    <span className="text-[7px] font-bold text-emerald-600/70 uppercase tracking-wider truncate block">{model.providerName}</span>
                   </div>
                 )}
               </div>

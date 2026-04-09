@@ -38,8 +38,7 @@ export const CATEGORY_REASONING: Record<string, string> = {
 };
 
 export const DEFAULT_CONFIG: NexusConfig = {
-  localUrl: "http://localhost:11434",
-  localKey: "",
+  localProviders: [{ name: 'Local', url: 'http://localhost:11434', key: '' }],
   cloudUrl: "",
   cloudKey: "",
   router: {

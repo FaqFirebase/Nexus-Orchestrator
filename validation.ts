@@ -27,12 +27,27 @@ export const adminResetPasswordSchema = z.object({
 });
 
 // Config
+const localProviderSchema = z.object({
+  name: z.string().optional().default('Local'),
+  url: z.string().optional().default(''),
+  key: z.string().optional().default(''),
+});
+
+// Accept both legacy string format and new CategoryModel object format to handle
+// stale browser sessions that may still send the old format before a page reload.
+const categoryModelSchema = z.union([
+  z.string(),
+  z.object({ name: z.string(), providerUrl: z.string().optional().default('') }),
+]);
+
 const categorySchema = z.object({
-  models: z.array(z.string()),
+  models: z.array(categoryModelSchema),
   provider: z.enum(['local', 'cloud']),
 });
 
 export const configSchema = z.object({
+  localProviders: z.array(localProviderSchema).optional(),
+  // Legacy fields kept for backward-compat migration — overridden by localProviders on read
   localUrl: z.string().optional().default(''),
   localKey: z.string().optional().default(''),
   cloudUrl: z.string().optional().default(''),
@@ -65,7 +80,9 @@ const messageSchema = z.object({
 const decisionSchema = z.object({
   category: z.string(),
   model: z.string(),
+  providerUrl: z.string().optional(),
   fallbackModels: z.array(z.string()).optional(),
+  fallbackProviderUrls: z.array(z.string()).optional(),
   provider: z.enum(['local', 'cloud', 'gemini']),
   reasoning: z.string().optional(),
   confidence: z.number().optional(),

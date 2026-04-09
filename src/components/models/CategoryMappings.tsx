@@ -1,5 +1,5 @@
 import { BrainCircuit, X, Info, Zap, CloudOff } from 'lucide-react';
-import type { NexusConfig, ModelCategory } from '../../types';
+import type { NexusConfig, ModelCategory, CategoryModel } from '../../types';
 import { getCategoryConfig, CATEGORY_REASONING } from '../../constants';
 
 interface CategoryMappingsProps {
@@ -10,6 +10,21 @@ interface CategoryMappingsProps {
   addCategory: () => void;
   removeCategory: (cat: string) => void;
   saveConfig: (cfg: NexusConfig) => void;
+}
+
+/** Resolves a category model entry to its name string (handles legacy strings). */
+function modelName(m: CategoryModel | string): string {
+  return typeof m === 'string' ? m : m.name;
+}
+
+/** Resolves a category model entry to its provider URL (empty for cloud/manual). */
+function modelProviderUrl(m: CategoryModel | string): string {
+  return typeof m === 'string' ? '' : (m.providerUrl ?? '');
+}
+
+/** Two entries refer to the same model slot if both name and providerUrl match. */
+function isSameModel(a: CategoryModel | string, b: CategoryModel | string): boolean {
+  return modelName(a) === modelName(b) && modelProviderUrl(a) === modelProviderUrl(b);
 }
 
 export default function CategoryMappings({
@@ -65,7 +80,7 @@ export default function CategoryMappings({
                 value={catConfig.provider}
                 onChange={(e) => {
                   const newConfig = { ...config };
-                  newConfig.categories[category as ModelCategory].provider = e.target.value as any;
+                  newConfig.categories[category as ModelCategory].provider = e.target.value as 'local' | 'cloud';
                   saveConfig(newConfig);
                 }}
                 className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-[9px] font-bold uppercase text-zinc-400 outline-none"
@@ -97,18 +112,19 @@ export default function CategoryMappings({
 
               {/* Selected Models as Tags */}
               <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2.5 bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner">
-                {catConfig.models.length > 0 ? catConfig.models.map(m => (
+                {catConfig.models.length > 0 ? catConfig.models.map((entry, idx) => (
                   <button
-                    key={m}
+                    key={`${modelProviderUrl(entry)}-${modelName(entry)}-${idx}`}
                     onClick={() => {
                       const newConfig = { ...config };
-                      newConfig.categories[category as ModelCategory].models = catConfig.models.filter(mod => mod !== m);
+                      newConfig.categories[category as ModelCategory].models =
+                        catConfig.models.filter(m => !isSameModel(m, entry));
                       saveConfig(newConfig);
                     }}
-                    title="Click to remove"
+                    title={modelProviderUrl(entry) ? `Provider: ${modelProviderUrl(entry)}\nClick to remove` : 'Click to remove'}
                     className="px-2 py-1 bg-emerald-500/10 hover:bg-red-500/10 rounded-lg text-[10px] font-mono text-emerald-400 hover:text-red-400 border border-emerald-500/20 hover:border-red-500/20 transition-all flex items-center gap-1.5 group"
                   >
-                    {m}
+                    {modelName(entry)}
                     <X className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />
                   </button>
                 )) : (
@@ -141,18 +157,20 @@ export default function CategoryMappings({
                   <div className="p-3 rounded-xl bg-zinc-800/30 border border-zinc-800/50 space-y-2">
                     <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Available Local Models</p>
                     <div className="grid grid-cols-2 gap-1.5">
-                      {localModels.map(m => {
-                        const isSelected = catConfig.models.includes(m.name);
+                      {localModels.map((m, idx) => {
+                        const entry: CategoryModel = { name: m.name, providerUrl: m.providerUrl || '' };
+                        const isSelected = catConfig.models.some(cm => isSameModel(cm, entry));
                         return (
                           <button
-                            key={m.name}
+                            key={`${m.providerUrl ?? ''}-${m.name}-${idx}`}
                             onClick={() => {
                               const newConfig = { ...config };
-                              const currentModels = newConfig.categories[category as ModelCategory].models;
+                              const current = newConfig.categories[category as ModelCategory].models;
                               if (isSelected) {
-                                newConfig.categories[category as ModelCategory].models = currentModels.filter(mod => mod !== m.name);
+                                newConfig.categories[category as ModelCategory].models =
+                                  current.filter(cm => !isSameModel(cm, entry));
                               } else {
-                                newConfig.categories[category as ModelCategory].models = [...currentModels, m.name];
+                                newConfig.categories[category as ModelCategory].models = [...current, entry];
                               }
                               saveConfig(newConfig);
                             }}
@@ -162,11 +180,16 @@ export default function CategoryMappings({
                                 : 'bg-black/20 border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
                             }`}
                           >
-                            <span className="truncate mr-1">{m.name}</span>
+                            <div className="flex flex-col items-start min-w-0 mr-1 w-full">
+                              <span className="truncate w-full" title={m.displayName || m.name}>{m.displayName || m.name}</span>
+                              {m.providerName && (
+                                <span className="text-[7px] font-bold text-zinc-600 uppercase tracking-wider truncate">{m.providerName}</span>
+                              )}
+                            </div>
                             {isSelected ? (
-                              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] shrink-0" />
                             ) : (
-                              <div className="w-2 h-2 rounded-full border border-zinc-700" />
+                              <div className="w-2 h-2 rounded-full border border-zinc-700 shrink-0" />
                             )}
                           </button>
                         );
@@ -184,9 +207,11 @@ export default function CategoryMappings({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       const val = e.currentTarget.value.trim();
-                      if (val && !catConfig.models.includes(val)) {
+                      // Manual entries have no specific provider URL — server falls back to first local provider
+                      const entry: CategoryModel = { name: val, providerUrl: '' };
+                      if (val && !catConfig.models.some(m => isSameModel(m, entry))) {
                         const newConfig = { ...config };
-                        newConfig.categories[category as ModelCategory].models = [...catConfig.models, val];
+                        newConfig.categories[category as ModelCategory].models = [...catConfig.models, entry];
                         saveConfig(newConfig);
                         e.currentTarget.value = '';
                       }
@@ -236,11 +261,11 @@ export default function CategoryMappings({
             </div>
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">2. Provider Selection</p>
-              <p className="text-[10px] text-zinc-500 leading-relaxed">The router checks the category mapping. If set to 'Local' and the provider is online, it targets the local model pool.</p>
+              <p className="text-[10px] text-zinc-500 leading-relaxed">Each model in a category pool stores its source provider. Requests are dispatched directly to the correct endpoint.</p>
             </div>
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">3. Load Balancing</p>
-              <p className="text-[10px] text-zinc-500 leading-relaxed">If multiple models are in a pool, the router selects the first available or uses a weighted round-robin approach.</p>
+              <p className="text-[10px] text-zinc-500 leading-relaxed">If a model fails, Nexus falls back to the next model in the pool — even if it lives on a different provider.</p>
             </div>
           </div>
         </div>
