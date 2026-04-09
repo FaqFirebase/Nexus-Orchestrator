@@ -26,4 +26,3 @@ tests
 LICENSE
 .gitignore
 .dockerignore
-nexus-orchestrator.code-workspace

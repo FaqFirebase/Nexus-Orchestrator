@@ -2,9 +2,6 @@
 
 ## Planned
 
-### High Priority
-- [ ] **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously. Model discovery aggregates across all providers. Routing targets the correct endpoint per model. Config shape: `localProviders: [{ url, key, name }]` replaces single `localUrl`/`localKey`. Backward compatible — existing `localUrl` migrates to `localProviders[0]`.
-
 ### Medium Priority
 - [ ] **URL fetch/browse tool** — Add a `fetch_url` LLM tool alongside web search. Fetches a specific URL and returns the page content as plain text so the model can read it directly. Shares the same enable toggle as SearXNG web search.
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects. TCP disconnect does not propagate through Docker networking to the llama runner. UI stop works; backend keeps generating.
@@ -12,6 +9,13 @@
 ---
 
 ## Completed
+
+### v1.1.6
+- ✅ **OpenAI-compat provider fixes** — Health check and model discovery now correctly probe `/v1/models` for providers whose base URL ends with `/v1` (e.g. llama-swap, LM Studio). Previous logic always appended `/api/models` causing 404s. Model display names (`m.name`) from llama-swap are shown in the UI while the routing key (`m.id`) is used in API requests. Model IDs are trimmed of whitespace. Long model names no longer overflow their grid cards (`overflow-hidden` + `min-w-0`).
+- ✅ **Slow-loading provider timeout** — Per-attempt chat timeout raised from 60s to 300s (configurable via `CHAT_TIMEOUT_MS` env var). Overall request timeout is `4×` the per-attempt value. Loading-retry backoff changed from 3×5s to 5×30s (30s / 60s / 90s / 120s / 150s) to give llama-swap and similar providers time to swap models.
+
+### v1.1.5
+- ✅ **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, and any other OpenAI-compatible endpoints simultaneously. Model discovery aggregates across all providers and tags each model with its source. Category assignments store the provider URL alongside the model name so routing targets the correct endpoint. Fallback chains work across providers. Config shape: `localProviders: [{ url, key, name }]`. Existing `localUrl`/`localKey` configs migrate automatically on first load.
 
 ### v1.1.4
 - ✅ **Web search sources display** — After a web search completes, a collapsible Sources section appears below the assistant response showing the SearXNG results used (title, URL, snippet). Server emits a `sources` SSE event after the search; frontend stores and renders it as a toggle per message.

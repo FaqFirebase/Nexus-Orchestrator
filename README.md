@@ -254,10 +254,10 @@ See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
 
 ## Changelog
 
+**v1.1.6** — OpenAI-compat provider fixes (correct `/v1/models` probing for llama-swap/LM Studio, display name support, model ID whitespace trim, card overflow fix) and slow-loading provider timeout (300s per attempt, configurable via `CHAT_TIMEOUT_MS`; 5-retry loading backoff up to 150s).
+
+**v1.1.5** — Multiple local providers. Configure Ollama, llama-swap, llama.cpp, and any other OpenAI-compatible endpoints simultaneously. Models are discovered from all providers and tagged by source. Category model assignments carry their provider URL so routing targets the correct endpoint.
+
 **v1.1.4** — Web search sources display. After a web search completes, a collapsible Sources toggle appears below the response showing the SearXNG results with title, URL, and snippet.
-
-**v1.1.3** — SearXNG web search via tool calling. LLMs can search the web through a self-hosted SearXNG instance. Always-on toggle or per-chat globe button. The LLM decides when to search.
-
-**v1.1.2** — Request queuing. Each user now has a per-user FIFO queue for chat requests. Concurrent requests process in order; up to 5 can be pending per user.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
