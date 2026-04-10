@@ -1,6 +1,7 @@
-import { BrainCircuit, X, Info, Zap, CloudOff } from 'lucide-react';
+import { BrainCircuit, X, Info, Zap, CloudOff, ChevronDown, ChevronRight } from 'lucide-react';
 import type { NexusConfig, ModelCategory, CategoryModel } from '../../types';
 import { getCategoryConfig, CATEGORY_REASONING } from '../../constants';
+import { usePersistentToggle } from '../../hooks/usePersistentToggle';
 
 interface CategoryMappingsProps {
   config: NexusConfig;
@@ -31,6 +32,8 @@ export default function CategoryMappings({
   config, localModels, newCategoryName, setNewCategoryName,
   addCategory, removeCategory, saveConfig,
 }: CategoryMappingsProps) {
+  const [routingLogicVisible, toggleRoutingLogic] = usePersistentToggle('nexus:section:routing-logic', true);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -230,45 +233,57 @@ export default function CategoryMappings({
 
       {/* Routing Logic Reasoning */}
       <div className="mt-12 space-y-6 pt-12 border-t border-zinc-800/50">
-        <div className="flex items-center gap-2">
-          <Info className="w-4 h-4 text-zinc-400" />
+        <button
+          type="button"
+          onClick={toggleRoutingLogic}
+          className="flex items-center gap-2 group w-full text-left"
+        >
+          {routingLogicVisible
+            ? <ChevronDown className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 transition-colors shrink-0" />
+            : <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 transition-colors shrink-0" />
+          }
+          <Info className="w-4 h-4 text-zinc-400 shrink-0" />
           <h3 className="text-sm font-bold text-zinc-200 uppercase tracking-widest">Routing Logic & Decision Matrix</h3>
-        </div>
+        </button>
 
-        <div className="grid gap-4">
-          {Object.entries(CATEGORY_REASONING).map(([cat, reasoning]) => (
-            <div key={cat} className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 flex gap-4 items-start group hover:border-zinc-700 transition-colors">
-              <div className={`w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0 ${getCategoryConfig(cat).color}`}>
-                {getCategoryConfig(cat).icon}
-              </div>
-              <div className="space-y-1">
-                <h4 className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest">{cat}</h4>
-                <p className="text-xs text-zinc-500 leading-relaxed group-hover:text-zinc-400 transition-colors">{reasoning}</p>
-              </div>
+        {routingLogicVisible && (
+          <>
+            <div className="grid gap-4">
+              {Object.entries(CATEGORY_REASONING).map(([cat, reasoning]) => (
+                <div key={cat} className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800 flex gap-4 items-start group hover:border-zinc-700 transition-colors">
+                  <div className={`w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0 ${getCategoryConfig(cat).color}`}>
+                    {getCategoryConfig(cat).icon}
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest">{cat}</h4>
+                    <p className="text-xs text-zinc-500 leading-relaxed group-hover:text-zinc-400 transition-colors">{reasoning}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div className="p-6 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 space-y-4">
-          <div className="flex items-center gap-2 text-emerald-500">
-            <Zap className="w-4 h-4" />
-            <h4 className="text-xs font-bold uppercase tracking-widest">Orchestration Strategy</h4>
-          </div>
-          <div className="grid sm:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">1. Intent Analysis</p>
-              <p className="text-[10px] text-zinc-500 leading-relaxed">The router model analyzes the user input to determine the primary intent and required capabilities.</p>
+            <div className="p-6 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 space-y-4">
+              <div className="flex items-center gap-2 text-emerald-500">
+                <Zap className="w-4 h-4" />
+                <h4 className="text-xs font-bold uppercase tracking-widest">Orchestration Strategy</h4>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">1. Intent Analysis</p>
+                  <p className="text-[10px] text-zinc-500 leading-relaxed">The router model analyzes the user input to determine the primary intent and required capabilities.</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">2. Provider Selection</p>
+                  <p className="text-[10px] text-zinc-500 leading-relaxed">Each model in a category pool stores its source provider. Requests are dispatched directly to the correct endpoint.</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">3. Load Balancing</p>
+                  <p className="text-[10px] text-zinc-500 leading-relaxed">If a model fails, Nexus falls back to the next model in the pool — even if it lives on a different provider.</p>
+                </div>
+              </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">2. Provider Selection</p>
-              <p className="text-[10px] text-zinc-500 leading-relaxed">Each model in a category pool stores its source provider. Requests are dispatched directly to the correct endpoint.</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">3. Load Balancing</p>
-              <p className="text-[10px] text-zinc-500 leading-relaxed">If a model fails, Nexus falls back to the next model in the pool — even if it lives on a different provider.</p>
-            </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

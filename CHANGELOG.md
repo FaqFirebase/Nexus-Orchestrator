@@ -1,6 +1,12 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.7
+- **Collapsible settings sections** — All sections in the Models tab (Local Providers, Cloud Provider, Web Search, Intent Router, Routing Logic & Decision Matrix, Discovered Models) can now be collapsed and expanded. Collapse state persists across page refreshes via localStorage.
+- **Active tab persists on refresh** — The selected tab (Chat, Models, System) is remembered across page refreshes. Navigating away and reloading returns you to the same tab.
+- **Discovered Models redesign** — Replaced the dense 4-column card grid with a provider-grouped list. Models are grouped under their provider with collapsible sections. Active router model is highlighted. Size pills are colour-coded by parameter tier. Generic family tags (LIBRARY, unknown) are suppressed.
+- **Mixed content fix** — Removed hardcoded `http://localhost:11434` default from the frontend bundle and stripped `http://` protocol from placeholder text. Resolves browser mixed content warnings on HTTPS deployments.
+
 ### v1.1.6
 - **OpenAI-compat provider fixes** — Health check and model discovery now correctly probe `/v1/models` for providers whose base URL ends with `/v1` (llama-swap, LM Studio, etc.). Previous logic appended `/api/models` causing 404s and "offline" status. Model display names from llama-swap are shown in the UI while the routing key is sent in API requests. Model IDs are trimmed of whitespace at source. Long model names no longer overflow their grid cards.
 - **Slow-loading provider timeout** — Per-attempt chat timeout raised from 60s to 300s, configurable via `CHAT_TIMEOUT_MS` env var. Overall request timeout scales to `4×` the per-attempt value. Model-loading retry backoff extended from 3 retries at 5s intervals to 5 retries at 30s intervals (up to 150s wait) to accommodate providers like llama-swap that take time to swap models.

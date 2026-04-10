@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { DEFAULT_CONFIG } from './constants';
+import { usePersistentTab } from './hooks/usePersistentTab';
 
 import { useAuth } from './hooks/useAuth';
 import { useConnection } from './hooks/useConnection';
@@ -18,7 +19,7 @@ import SystemTab from './components/system/SystemTab';
 import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'models' | 'system'>('chat');
+  const [activeTab, setActiveTab] = usePersistentTab();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showChangePassword, setShowChangePassword] = useState(false);
 
