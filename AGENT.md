@@ -1,139 +1,80 @@
-# AGENTS.md
+## Purpose
 
-## 0. Purpose
-
-This file defines **mandatory rules, workflows, and standards** for all AI agents operating in this repository.
-
-Agents must produce **complete, correct, production-ready code** that aligns with the existing codebase.
-
-No shortcuts. No assumptions. No partial work.
+Defines mandatory rules for AI agents to produce complete, production-ready code aligned with the codebase.
 
 ---
 
-## 1. Instruction Priority
+## Instruction Priority
 
-Follow instructions in this order:
-
-1. System
-2. Developer
-3. User
-4. This file (`AGENTS.md`)
-5. Tools
-
-If instructions conflict, follow the higher-priority source.
+System → Developer → User → AGENTS.md → Tools
 
 ---
 
-## 2. Non-Negotiable Rules
+## Core Constraints (Non-Negotiable)
 
-The following are **absolute constraints**:
-
-- NO partial implementations
-- NO placeholders or deferred work
-- NO simplifications when full implementation is possible
-- NO code duplication
-- NO dead code
-- NO magic numbers or strings
-- NO generic error handling
-- NO inconsistent naming
-- NO inconsistent APIs
-- NO mixed concerns
-- NO over-engineering
-- NO callback hell
-- NO resource leaks
-
-Violating any of these = incorrect output
+- No partial implementations or placeholders
+- No duplication or dead code
+- No magic numbers → use constants
+- No generic error handling
+- No inconsistent naming or APIs
+- No mixed concerns
+- No over-engineering or callback hell
+- No resource leaks
 
 ---
 
-## 3. Required Workflow
+## Required Workflow
 
-Agents MUST follow this sequence:
+### 1. Read First
 
-### 3.1 Read Before Writing
+- Identify relevant files, utilities, patterns, naming
+- If not done → do not proceed
 
-Before making changes:
+### 2. Plan Minimal Change
 
-- Identify all relevant files
-- Identify reusable functions and utilities
-- Identify naming conventions
-- Identify architectural patterns
-
-If this is not done → DO NOT proceed
-
----
-
-### 3.2 Plan Minimal Change
-
-- Prefer modifying existing code over adding new code
-- Reuse existing utilities/constants
+- Modify existing code when possible
+- Reuse utilities/constants
 - Keep changes minimal and atomic
 
----
+### 3. Implement Fully
 
-### 3.3 Implement Fully
+- Production-ready code only
+- No TODOs, pseudo-code, or placeholders
 
-- Write complete production-ready code
-- No pseudo-code
-- No TODOs
-- No placeholders
+### 4. Add Tests
 
----
+- Test every function
+- Cover edge cases and failures
 
-### 3.4 Add Tests
+### 5. Validate Consistency
 
-For every function:
+- Match naming and patterns
+- Ensure API consistency
+- Remove unused/duplicate logic
 
-- Add real, meaningful tests
-- Cover edge cases and failure paths
-- Ensure tests aid debugging
+### 6. Resource Safety
 
----
+- Close connections/files
+- Clear timers
+- Remove listeners
 
-### 3.5 Validate Consistency
+### 7. Deliver
 
-Ensure:
-
-- Naming matches existing patterns
-- APIs are consistent (params + return shapes)
-- No duplicate logic introduced
-- No unused code remains
+- Complete working solution only
+- No deferred work or next steps
 
 ---
 
-### 3.6 Resource Safety
+## Standards
 
-Ensure:
+### Naming
 
-- Database connections are closed
-- File handles are closed
-- Timers are cleared
-- Event listeners are removed
+- Follow existing conventions
+- Use clear, reusable names
 
----
+### Constants
 
-### 3.7 Deliver Final Result
-
-- Provide complete working solution
-- Do not defer work
-- Do not suggest “next steps”
-
----
-
-## 4. Code Standards
-
-### 4.1 Naming
-
-- Follow existing naming conventions exactly
-- Use clear, descriptive, reusable names
-- Do not introduce new naming patterns
-
----
-
-### 4.2 Constants
-
-- Replace all literals with named constants
-- Do NOT hardcode values such as status codes, endpoints, or configuration values
+- Replace literals with named constants
 
 #### ❌ BAD
 
@@ -145,6 +86,6 @@ if (status === 200)
 
 ```js
 const STATUS_OK = 200
-
 if (status === STATUS_OK)
 ```
+
