@@ -255,10 +255,10 @@ See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
 
 ## Changelog
 
+**v1.1.8** — Security hardening. CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
+
 **v1.1.7** — Collapsible settings sections with persistent state (all Models tab sections collapse/expand and remember their state across refreshes). Active tab persists on page refresh. Discovered Models redesigned as a provider-grouped collapsible list with active router highlighting and size-tiered colour coding. Mixed content fix for HTTPS deployments.
 
 **v1.1.6** — OpenAI-compat provider fixes (correct `/v1/models` probing for llama-swap/LM Studio, display name support, model ID whitespace trim, card overflow fix) and slow-loading provider timeout (300s per attempt, configurable via `CHAT_TIMEOUT_MS`; 5-retry loading backoff up to 150s).
-
-**v1.1.5** — Multiple local providers. Configure Ollama, llama-swap, llama.cpp, and any other OpenAI-compatible endpoints simultaneously. Models are discovered from all providers and tagged by source. Category model assignments carry their provider URL so routing targets the correct endpoint.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
