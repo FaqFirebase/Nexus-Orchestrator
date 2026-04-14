@@ -18,6 +18,7 @@ Nexus is more than a chat interface — it's an **orchestration layer** for your
 - **Privacy First** — Point the router at a local Ollama model and your prompts never leave your network.
 - **Structured Logging** — JSON logs in production (pino), pretty-printed in dev. Control verbosity with `LOG_LEVEL`.
 - **Unraid Ready** — Includes a community template for one-click Unraid deployment.
+- **Security Hardened** — CORS, security headers, rate limiting, session management, body size limits, and input validation all configured out of the box.
 
 ---
 

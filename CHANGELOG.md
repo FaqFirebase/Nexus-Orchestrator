@@ -1,6 +1,20 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.8
+- **Security hardening** — Multiple server-side security improvements with no user-facing behaviour changes:
+  - **CORS** — Origin header is now echoed explicitly instead of falling back to `*`. `Access-Control-Allow-Credentials` is only sent when a matching origin is present, making the combination spec-compliant.
+  - **SSRF** — Cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`, `metadata.internal`, `kubernetes.default.svc`) and IPv6 loopback are now blocked when saving provider URLs. Private LAN addresses (192.168.x, 10.x, 172.x) remain allowed — required for local Ollama/provider access.
+  - **Security headers** — Added `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Strict-Transport-Security` (HTTPS only), `Referrer-Policy`, and `Permissions-Policy` to all responses.
+  - **Rate limiting** — Password change endpoint (`PUT /api/auth/password`) now shares the auth rate limiter (20 req / 15 min).
+  - **Session management** — Expired sessions are swept hourly instead of only on access, preventing unbounded memory growth. Sessions are capped at 10 per user; oldest is evicted when the limit is reached.
+  - **Body size limits** — Global JSON body limit reduced from 50 MB to 1 MB. Chat and conversation endpoints retain a 20 MB limit to support base64-encoded vision images.
+  - **Reverse proxy trust** — `trust proxy` set correctly so `req.secure` reflects the upstream HTTPS state from Caddy. Cookie `secure` flag and HSTS no longer rely on a manually read `x-forwarded-proto` header.
+  - **Admin settings validation** — `PUT /api/admin/settings` now validates against a strict Zod schema; unknown fields are rejected.
+  - **Password complexity** — New passwords (register, change password, admin create/reset) now require at least one uppercase letter, one lowercase letter, and one digit in addition to the existing 8-character minimum.
+  - **Cookie parsing** — Custom cookie parser replaced with the `cookie` npm package, which handles URL-encoding and quoted-string edge cases correctly.
+  - **Error leakage** — Config read/save endpoints return generic error strings; full error details are logged server-side only.
+
 ### v1.1.7
 - **Collapsible settings sections** — All sections in the Models tab (Local Providers, Cloud Provider, Web Search, Intent Router, Routing Logic & Decision Matrix, Discovered Models) can now be collapsed and expanded. Collapse state persists across page refreshes via localStorage.
 - **Active tab persists on refresh** — The selected tab (Chat, Models, System) is remembered across page refreshes. Navigating away and reloading returns you to the same tab.

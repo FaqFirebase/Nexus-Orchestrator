@@ -6,24 +6,31 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+const passwordSchema = z.string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(128)
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one number');
+
 export const registerSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters').max(50).regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, hyphens, and underscores'),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  password: passwordSchema,
 });
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  newPassword: passwordSchema,
 });
 
 export const adminCreateUserSchema = z.object({
   username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_-]+$/),
-  password: z.string().min(8).max(128),
+  password: passwordSchema,
   role: z.enum(['admin', 'user']).optional().default('user'),
 });
 
 export const adminResetPasswordSchema = z.object({
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  password: passwordSchema,
 });
 
 // Config
@@ -119,6 +126,11 @@ export const updateProjectSchema = z.object({
 export const assignConversationSchema = z.object({
   projectId: z.string().nullable(),
 });
+
+// Admin settings
+export const adminSettingsSchema = z.object({
+  registrationEnabled: z.boolean().optional(),
+}).strict();
 
 // Middleware helper
 import type { Request, Response, NextFunction } from 'express';
