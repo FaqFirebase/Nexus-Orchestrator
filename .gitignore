@@ -29,6 +29,9 @@ conversations.json
 .vscode/
 .kilo/
 
+# Local project memory
+PROJECT_HISTORY.md
+
 # Architecture diagram
 architecture.html
 
