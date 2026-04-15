@@ -1,5 +1,7 @@
 node_modules
 dist
+build
+coverage
 .git
 .vscode
 .claude
@@ -25,5 +27,7 @@ img
 docs
 tests
 LICENSE
+template_unraid.xml
+metadata.json
 .gitignore
 .dockerignore
