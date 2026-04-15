@@ -29,5 +29,6 @@ tests
 LICENSE
 template_unraid.xml
 metadata.json
+PROJECT.md
 .gitignore
 .dockerignore
