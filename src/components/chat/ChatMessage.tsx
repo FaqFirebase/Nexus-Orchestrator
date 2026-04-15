@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Terminal, Cpu, FileText, Globe, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { Terminal, Cpu, FileText, Globe, ChevronDown, ChevronRight, ExternalLink, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -20,6 +20,44 @@ function preprocessLatex(content: string): string {
   result = result.replace(/(?<!\$)\\(boxed|frac|sqrt|sum|prod|int|lim|begin|end|left|right|mathbf|mathrm|textbf|text)(\{(?:[^{}]|\{[^{}]*\})*\})(?!\$)/g,
     (_, cmd, args) => `$\\${cmd}${args}$`);
   return result;
+}
+
+const COPY_RESET_DELAY = 2000;
+
+function CodeBlock({ language, children }: { language: string; children: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(children).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), COPY_RESET_DELAY);
+    });
+  }
+
+  return (
+    <div className="relative group/code my-4">
+      <div className="absolute -top-3 right-4 flex items-center gap-2 z-10 opacity-0 group-hover/code:opacity-100 transition-opacity">
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 px-2 py-1 bg-zinc-800 rounded text-[10px] font-bold uppercase tracking-widest border transition-colors border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/30"
+        >
+          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+        <div className="px-2 py-1 bg-zinc-800 rounded text-[10px] font-bold text-zinc-400 uppercase tracking-widest border border-zinc-700">
+          {language}
+        </div>
+      </div>
+      <SyntaxHighlighter
+        style={vscDarkPlus}
+        language={language}
+        PreTag="div"
+        className="rounded-xl !bg-black/50 !p-6 border border-zinc-800/50 !m-0"
+      >
+        {children}
+      </SyntaxHighlighter>
+    </div>
+  );
 }
 
 interface ChatMessageProps {
@@ -68,20 +106,7 @@ export default function ChatMessage({ msg }: ChatMessageProps) {
               code({ node, inline, className, children, ...props }: any) {
                 const match = /language-(\w+)/.exec(className || '');
                 return !inline && match ? (
-                  <div className="relative group/code my-4">
-                    <div className="absolute -top-3 right-4 px-2 py-1 bg-zinc-800 rounded text-[10px] font-bold text-zinc-400 uppercase tracking-widest border border-zinc-700 z-10 opacity-0 group-hover/code:opacity-100 transition-opacity">
-                      {match[1]}
-                    </div>
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      className="rounded-xl !bg-black/50 !p-6 border border-zinc-800/50 !m-0"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  </div>
+                  <CodeBlock language={match[1]}>{String(children).replace(/\n$/, '')}</CodeBlock>
                 ) : (
                   <code className="px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-400 font-mono text-xs border border-zinc-700" {...props}>
                     {children}
