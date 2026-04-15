@@ -255,7 +255,7 @@ See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
 
 ## Changelog
 
-**v1.1.8** — Copy button on code blocks (hover to reveal, 2-second "Copied" feedback). Security hardening: CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
+**v1.1.8** — Copy button on code blocks (hover to reveal, 2-second "Copied" feedback). FAST category routing tightened — now restricted to greetings and micro-interactions only; factual questions route to GENERAL. Security hardening: CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
 
 **v1.1.7** — Collapsible settings sections with persistent state (all Models tab sections collapse/expand and remember their state across refreshes). Active tab persists on page refresh. Discovered Models redesigned as a provider-grouped collapsible list with active router highlighting and size-tiered colour coding. Mixed content fix for HTTPS deployments.
 

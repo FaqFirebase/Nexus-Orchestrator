@@ -3,6 +3,7 @@ Version numbers are based off of Dock Hub releases.
 
 ### v1.1.8
 - **Copy code snippets** — A **Copy** button appears on hover in the top-right corner of every code block in the chat. Clicking copies the raw code to the clipboard. The button shows a check icon and "Copied" for 2 seconds then resets.
+- **FAST category routing fix** — FAST is now restricted to pure micro-interactions (greetings, one-word replies, trivial arithmetic). Any prompt requiring knowledge retrieval, explanation, or a multi-sentence answer routes to GENERAL instead. Prevents FAST from incorrectly capturing prompts that need a capable model.
 - **Security hardening** — Multiple server-side security improvements with no user-facing behaviour changes:
   - **CORS** — Origin header is now echoed explicitly instead of falling back to `*`. `Access-Control-Allow-Credentials` is only sent when a matching origin is present, making the combination spec-compliant.
   - **SSRF** — Cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`, `metadata.internal`, `kubernetes.default.svc`) and IPv6 loopback are now blocked when saving provider URLs. Private LAN addresses (192.168.x, 10.x, 172.x) remain allowed — required for local Ollama/provider access.
