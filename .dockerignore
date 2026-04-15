@@ -30,5 +30,6 @@ LICENSE
 template_unraid.xml
 metadata.json
 PROJECT.md
+AGENT.md
 .gitignore
 .dockerignore

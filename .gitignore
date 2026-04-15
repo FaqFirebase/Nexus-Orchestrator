@@ -32,6 +32,7 @@ conversations.json
 # Local project memory
 PROJECT_HISTORY.md
 PROJECT.md
+AGENT.md
 
 # Logs
 *.log
