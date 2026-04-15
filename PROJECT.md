@@ -54,11 +54,13 @@ nexus-orchestrator/
 │   │   ├── RoutingAnalysis.tsx
 │   │   └── Sidebar.tsx
 │   └── hooks/
-│       ├── useAuth.ts          # Login/logout, session state
-│       ├── useChat.ts          # Chat send, SSE stream parsing, message state
-│       ├── useConfig.ts        # Load/save provider config
-│       ├── useConnection.ts    # Health check, auth status polling
-│       └── useConversations.ts # Conversation + project CRUD, pagination
+│       ├── useAuth.ts              # Login/logout, session state
+│       ├── useChat.ts              # Chat send, SSE stream parsing, message state
+│       ├── useConfig.ts            # Load/save provider config
+│       ├── useConnection.ts        # Health check, auth status polling
+│       ├── useConversations.ts     # Conversation + project CRUD, pagination
+│       ├── usePersistentTab.ts     # Active tab persisted to localStorage
+│       └── usePersistentToggle.ts  # Section collapse state persisted to localStorage
 ├── tests/
 │   └── validation.test.ts
 ├── docs/
@@ -95,7 +97,7 @@ All IDs are `crypto.randomUUID()`. WAL mode and `PRAGMA foreign_keys = ON` are s
 
 - **Credentials:** scrypt-hashed passwords in `users` table.
 - **Sessions:** random 32-byte hex tokens stored in an in-memory `Map<token, {userId, expiresAt}>`. TTL is 7 days.
-- **Transport:** `nexus_session` httpOnly cookie. `x-admin-key` header accepted as a fallback for API clients.
+- **Transport:** `nexus_session` httpOnly cookie. `x-admin-key` header accepted as a fallback for API clients — verified via `crypto.timingSafeEqual` against the `ADMIN_API_KEY` env var directly (not the stored password hash). Changing the admin login password does not affect API clients.
 - **Admin bootstrap:** On first startup, the admin user is created from `ADMIN_API_KEY`. Existing single-user data migrates automatically.
 - **Multi-user:** All queries are scoped by `req.userId`. `req.userRole` available for admin-only endpoints.
 
@@ -176,7 +178,7 @@ All chat responses stream as `text/event-stream`. Each event is a JSON object on
 | POST | `/api/auth/login` | Username + password → session cookie |
 | POST | `/api/auth/logout` | Clear session |
 | GET | `/api/auth/status` | Check session validity |
-| POST | `/api/auth/change-password` | Change own password |
+| PUT | `/api/auth/password` | Change own password |
 
 ### Config
 | Method | Path | Description |
@@ -249,8 +251,8 @@ docker build -t nexus-orchestrator:latest .
 
 The Dockerfile uses a two-stage build:
 
-1. **Builder** — installs all deps, runs `vite build`, compiles frontend to `dist/`
-2. **Production** — copies `dist/`, `*.ts` backend files, and `node_modules`, runs with `tsx`
+1. **Builder** — installs all deps, runs `vite build`, compiles frontend to `dist/`, then prunes dev dependencies
+2. **Production** — copies `dist/`, `*.ts` backend files, and already-pruned `node_modules`, runs with `tsx`
 
 Data volume: `/app/data` — mount a host path here for persistence.
 
@@ -272,6 +274,7 @@ Data volume: `/app/data` — mount a host path here for persistence.
 | `CONFIG_DIR` | `/app/data` | Database and config directory |
 | `PORT` | `3000` | Server port |
 | `LOG_LEVEL` | `info` | Pino log level |
+| `CHAT_TIMEOUT_MS` | `300000` | Per-attempt chat timeout in ms. Overall timeout = 4× this value. |
 
 ---
 
@@ -285,7 +288,7 @@ Data volume: `/app/data` — mount a host path here for persistence.
 | CREATIVE | Stories, poems, brainstorming |
 | VISION | Image attachment present |
 | DOCUMENT | Document attachment present |
-| FAST | Trivial one-liner responses |
+| FAST | Pure micro-interactions only — greetings, single-word acknowledgements, trivial arithmetic. Any knowledge retrieval routes to GENERAL. |
 | SECURITY | Security analysis, CTF, pentesting |
 
 Custom categories can be added from the Models tab.
