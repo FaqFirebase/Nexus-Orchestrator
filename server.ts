@@ -265,14 +265,22 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
     }
   }
 
-  // Fallback: x-admin-key header for API clients — look up admin user
+  // Fallback: x-admin-key header for API clients — verified against ADMIN_API_KEY env var,
+  // not the DB password hash. This decouples API access from the admin login password:
+  // changing the admin password in the UI does not affect API clients.
   const headerKey = req.headers['x-admin-key'] as string;
-  if (headerKey) {
-    const adminUser = getUserByUsername('admin');
-    if (adminUser && verifyPassword(headerKey, adminUser.passwordHash)) {
-      req.userId = adminUser.id;
-      req.userRole = adminUser.role;
-      return next();
+  if (headerKey && ADMIN_API_KEY) {
+    const headerBuf = Buffer.from(headerKey);
+    const keyBuf = Buffer.from(ADMIN_API_KEY);
+    const keysMatch = headerBuf.length === keyBuf.length &&
+      crypto.timingSafeEqual(headerBuf, keyBuf);
+    if (keysMatch) {
+      const adminUser = getUserByUsername('admin');
+      if (adminUser) {
+        req.userId = adminUser.id;
+        req.userRole = adminUser.role;
+        return next();
+      }
     }
   }
 

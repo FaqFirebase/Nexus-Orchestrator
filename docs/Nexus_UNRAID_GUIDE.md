@@ -72,7 +72,7 @@ This is where your database, config, and conversation history are stored. All da
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ADMIN_API_KEY` | ✅ Yes | — | Password for the admin account (username: `admin`). On first run, an admin user is auto-created with this password. |
+| `ADMIN_API_KEY` | ✅ Yes | — | Master secret for this instance. Used as the initial admin login password on first run and as the API key for `x-admin-key` header access. Changing your password in the UI does not affect this value — API clients continue to use `ADMIN_API_KEY` regardless. |
 | `ENCRYPTION_SECRET` | Recommended | *(derived from ADMIN_API_KEY)* | Separate secret for encrypting stored data. Set a unique value in production. |
 | `LOCAL_URL` | ✅ Yes | `http://localhost:11434` | Base URL of your Ollama (or local OpenAI-compatible) provider. Use the LAN IP — not `localhost`. Example: `http://192.168.1.50:11434` |
 | `LOCAL_KEY` | No | *(empty)* | API key for local provider. Leave blank for standard Ollama. |

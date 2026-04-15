@@ -16,6 +16,7 @@ Version numbers are based off of Dock Hub releases.
   - **Password complexity** — New passwords (register, change password, admin create/reset) now require at least one uppercase letter, one lowercase letter, and one digit in addition to the existing 8-character minimum.
   - **Cookie parsing** — Custom cookie parser replaced with the `cookie` npm package, which handles URL-encoding and quoted-string edge cases correctly.
   - **Error leakage** — Config read/save endpoints return generic error strings; full error details are logged server-side only.
+  - **API key decoupled from admin password** — `x-admin-key` header is now verified directly against the `ADMIN_API_KEY` env var using constant-time comparison, not against the stored password hash. Changing the admin login password no longer breaks API clients. Existing installs require no changes.
 
 ### v1.1.7
 - **Collapsible settings sections** — All sections in the Models tab (Local Providers, Cloud Provider, Web Search, Intent Router, Routing Logic & Decision Matrix, Discovered Models) can now be collapsed and expanded. Collapse state persists across page refreshes via localStorage.

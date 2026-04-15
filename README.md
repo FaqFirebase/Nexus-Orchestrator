@@ -80,7 +80,7 @@ services:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ADMIN_API_KEY` | *(required)* | Password for the admin account (username: `admin`). On first run, an admin user is auto-created with this password |
+| `ADMIN_API_KEY` | *(required)* | Master secret for this instance. Sets the initial admin login password on first run and serves as the API key for `x-admin-key` header access. Changing your password in the UI does not affect this value |
 | `ENCRYPTION_SECRET` | *(derived from ADMIN_API_KEY)* | Separate secret for encrypting data at rest. Recommended for production |
 | `LOCAL_URL` | `http://localhost:11434` | Your Ollama or local provider base URL |
 | `LOCAL_KEY` | *(empty)* | API key for local provider (if required) |
