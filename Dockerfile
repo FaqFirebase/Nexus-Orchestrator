@@ -11,6 +11,10 @@ RUN npm install
 COPY . .
 RUN npm run build
 
+# Prune dev dependencies in the builder so only production node_modules
+# are copied to the final image (preserves better-sqlite3 native binary)
+RUN npm prune --production
+
 # --- Production Stage ---
 FROM node:20-slim
 
@@ -30,10 +34,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/*.ts ./
 
-# Copy node_modules from builder (preserves better-sqlite3 native binary)
-# then prune dev dependencies so only runtime deps ship in the image
+# Copy already-pruned node_modules from builder
 COPY --from=builder /app/node_modules ./node_modules
-RUN npm prune --production
 
 # Create data directory for persistence
 RUN mkdir -p /app/data && \
