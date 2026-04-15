@@ -30,8 +30,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/*.ts ./
 
-# Install only production dependencies (includes better-sqlite3 native addon)
+# Copy node_modules from builder (preserves better-sqlite3 native binary)
+# then prune dev dependencies so only runtime deps ship in the image
 COPY --from=builder /app/node_modules ./node_modules
+RUN npm prune --production
 
 # Create data directory for persistence
 RUN mkdir -p /app/data && \
