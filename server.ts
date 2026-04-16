@@ -1273,6 +1273,7 @@ async function startServer() {
 
       let response: any = null;
       let lastError: any = null;
+      let localThinkingEnabled = showThinkingEnabled;
 
       for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
         const { model: currentModel, baseUrl: modelBaseUrl, apiKey: modelApiKey } = modelsToTry[modelIdx];
@@ -1291,7 +1292,6 @@ async function startServer() {
         }
 
         let urlIndex = 0;
-        let localThinkingEnabled = showThinkingEnabled;
         while (urlIndex < candidateUrls.length) {
           const url = candidateUrls[urlIndex];
           log.debug({ url, model: currentModel }, 'Attempting route');
