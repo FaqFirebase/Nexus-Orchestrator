@@ -15,6 +15,7 @@ Nexus is more than a chat interface — it's an **orchestration layer** for your
 - **Multi-User Support** — Multiple users with per-user provider config, category mappings, conversations, and projects. Admin manages users from the System tab.
 - **Vision & Document Support** — Upload images and documents directly in the chat. Vision models receive them in the correct format automatically.
 - **Web Search via Tool Calling** — Connect a self-hosted SearXNG instance so the LLM can search the web when it needs current information. Enable globally or per-chat with a single click.
+- **Thinking Toggle** — For Ollama models that support it, Nexus sends `think: true` via the native API and streams reasoning live as it generates. Models like DeepSeek R1 that natively emit `<think>` tags are also supported. Reasoning appears in a collapsible purple section above the response. Toggle globally (System tab) or per-chat (Brain icon). Models that don't support thinking fall back silently.
 - **Privacy First** — Point the router at a local Ollama model and your prompts never leave your network.
 - **Structured Logging** — JSON logs in production (pino), pretty-printed in dev. Control verbosity with `LOG_LEVEL`.
 - **Unraid Ready** — Includes a community template for one-click Unraid deployment.
@@ -221,6 +222,18 @@ When enabled, identical routing prompts reuse the cached decision for 5 minutes.
 **When to use it:** Paid cloud routers where each call costs money.
 **When to skip it:** Local routers (Ollama) where the call is fast and free.
 
+### Show Model Thinking
+
+Some reasoning models (DeepSeek R1, QwQ, etc.) embed their chain-of-thought inside `<think>...</think>` tags in the response content. Nexus parses these tags client-side and displays the reasoning in a collapsible purple section above the response.
+
+**Global toggle:**
+1. Go to the **System** tab
+2. Toggle **Show Model Thinking** on or off (default: on)
+
+**Per-chat toggle:** Click the **Brain** icon (🧠) in the chat input bar to override the global setting for the current session.
+
+When thinking is visible, the section auto-collapses once the model's actual response starts streaming. Click to expand it again at any time. When thinking is hidden, the `<think>` tags are stripped and only the final response is shown.
+
 ---
 
 ## Building from Source
@@ -245,7 +258,6 @@ docker build -t nexus-orchestrator:latest .
 
 ### Planned
 
-- [ ] **Multiple local providers** — Configure Ollama, llama-swap, llama.cpp, etc. simultaneously; model discovery aggregates across all providers; routing targets the correct endpoint per model
 - [ ] **URL fetch/browse tool** — Companion to web search; lets the LLM fetch and read the content of a specific URL directly
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
 
@@ -255,10 +267,10 @@ See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
 
 ## Changelog
 
+**v1.1.9** — Thinking toggle for reasoning models (DeepSeek R1, QwQ, etc.). Client-side `<think>` tag parsing with collapsible display above responses. Global default (System tab) and per-chat override (Brain icon). Docker image reduced from 127 MB to ~86 MB via dependency cleanup and build-stage pruning. Added CONTRIBUTING.md, SECURITY.md, and GitHub issue templates.
+
 **v1.1.8** — Copy button on code blocks (hover to reveal, 2-second "Copied" feedback). FAST category routing tightened — now restricted to greetings and micro-interactions only; factual questions route to GENERAL. Security hardening: CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
 
 **v1.1.7** — Collapsible settings sections with persistent state (all Models tab sections collapse/expand and remember their state across refreshes). Active tab persists on page refresh. Discovered Models redesigned as a provider-grouped collapsible list with active router highlighting and size-tiered colour coding. Mixed content fix for HTTPS deployments.
-
-**v1.1.6** — OpenAI-compat provider fixes (correct `/v1/models` probing for llama-swap/LM Studio, display name support, model ID whitespace trim, card overflow fix) and slow-loading provider timeout (300s per attempt, configurable via `CHAT_TIMEOUT_MS`; 5-retry loading backoff up to 150s).
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.

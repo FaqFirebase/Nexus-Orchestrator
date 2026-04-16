@@ -2,13 +2,29 @@
 
 ## Planned
 
-### Medium Priority
 - [ ] **URL fetch/browse tool** — Add a `fetch_url` LLM tool alongside web search. Fetches a specific URL and returns the page content as plain text so the model can read it directly. Shares the same enable toggle as SearXNG web search.
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects. TCP disconnect does not propagate through Docker networking to the llama runner. UI stop works; backend keeps generating.
 
 ---
 
 ## Completed
+
+### v1.1.9
+- ✅ **Thinking toggle** — Server sends `think: true` to Ollama native `/api/chat`; reasoning streams from `message.thinking` chunks, synthesized into `<think>` tags server-side. Models that natively emit `<think>` tags (DeepSeek R1) parsed identically client-side. Collapsible purple section above response with scrollable max height. Stays open until manually collapsed. Global default (System tab) and per-chat override (Brain icon). Models that don't support thinking fall back silently. FAST category always excluded.
+- ✅ **Ollama detection fix** — Health check probes `/api/tags` before `/v1/models` so Ollama is correctly identified and routed to native `/api/chat` instead of `/v1/chat/completions`.
+- ✅ **Docker image size reduction** — Frontend/build packages moved to devDependencies, `npm prune --production` in builder stage, `node-fetch` removed. 127 MB → ~86 MB.
+- ✅ **Community standards** — CONTRIBUTING.md, SECURITY.md, GitHub issue templates (bug report, feature request).
+
+### v1.1.8
+- ✅ **Copy code button** — Hover-to-reveal Copy button on code blocks with 2-second feedback.
+- ✅ **FAST category routing fix** — Restricted to greetings and micro-interactions only.
+- ✅ **Security hardening** — CORS, SSRF, security headers, rate limiting, session management, body limits, password complexity, cookie parsing, error leakage, API key decoupling.
+
+### v1.1.7
+- ✅ **Collapsible settings sections** — All Models tab sections collapse/expand with localStorage persistence.
+- ✅ **Active tab persists on refresh** — `usePersistentTab` hook.
+- ✅ **Discovered Models redesign** — Provider-grouped collapsible list with size-tiered colour coding.
+- ✅ **Mixed content fix** — Removed hardcoded localhost from frontend bundle.
 
 ### v1.1.6
 - ✅ **OpenAI-compat provider fixes** — Health check and model discovery now correctly probe `/v1/models` for providers whose base URL ends with `/v1` (e.g. llama-swap, LM Studio). Previous logic always appended `/api/models` causing 404s. Model display names (`m.name`) from llama-swap are shown in the UI while the routing key (`m.id`) is used in API requests. Model IDs are trimmed of whitespace. Long model names no longer overflow their grid cards (`overflow-hidden` + `min-w-0`).

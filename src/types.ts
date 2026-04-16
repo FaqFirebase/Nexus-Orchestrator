@@ -91,6 +91,7 @@ export interface NexusConfig {
   };
   categories: Record<ModelCategory, { models: CategoryModel[]; provider: 'local' | 'cloud' }>;
   routerCacheEnabled?: boolean;
+  showThinking?: boolean;
   searxng?: {
     url: string;
     alwaysOn: boolean;

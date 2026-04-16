@@ -24,6 +24,8 @@ interface ChatTabProps {
   webSearchEnabled: boolean;
   onToggleWebSearch: () => void;
   searxngConfigured: boolean;
+  showThinkingEnabled: boolean;
+  onToggleThinking: () => void;
 }
 
 export default function ChatTab({
@@ -31,6 +33,7 @@ export default function ChatTab({
   input, setInput, attachments, removeAttachment,
   fileInputRef, handleFileSelect, handleSend, handleStop, setActiveTab,
   webSearchEnabled, onToggleWebSearch, searxngConfigured,
+  showThinkingEnabled, onToggleThinking,
 }: ChatTabProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -98,7 +101,7 @@ export default function ChatTab({
               animate={{ opacity: 1, y: 0 }}
               className="group"
             >
-              <ChatMessage msg={msg} />
+              <ChatMessage msg={msg} showThinkingEnabled={showThinkingEnabled} />
             </motion.div>
           ))}
         </AnimatePresence>
@@ -119,6 +122,8 @@ export default function ChatTab({
         webSearchEnabled={webSearchEnabled}
         onToggleWebSearch={onToggleWebSearch}
         searxngConfigured={searxngConfigured}
+        showThinkingEnabled={showThinkingEnabled}
+        onToggleThinking={onToggleThinking}
       />
     </div>
   );

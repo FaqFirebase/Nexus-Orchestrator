@@ -175,7 +175,7 @@
 <body>
 
 <h1>Nexus Orchestrator</h1>
-<p class="subtitle">Architecture Overview · Express + React · v1.1.8 · Port 3000</p>
+<p class="subtitle">Architecture Overview · Express + React · v1.1.9 · Port 3000</p>
 
 <div class="diagram">
 
@@ -209,11 +209,13 @@
         <ul>
           <li>ChatMessage (MD + KaTeX)</li>
           <li>Code blocks + copy button</li>
+          <li>Thinking block (collapsible)</li>
           <li>RoutingStatus (live steps)</li>
           <li>RoutingAnalysis (expand)</li>
           <li>Web search sources</li>
           <li>ChatInput + attachments</li>
           <li>Globe toggle (web search)</li>
+          <li>Brain toggle (thinking)</li>
         </ul>
       </div>
       <div class="component">
@@ -235,6 +237,7 @@
           <li>Export config JSON</li>
           <li>Export conversations JSON</li>
           <li>Router cache toggle</li>
+          <li>Show thinking toggle (global)</li>
           <li>Version display</li>
         </ul>
       </div>
@@ -358,11 +361,12 @@
         <div class="step-num">4</div>
         <div class="step-title">Provider Dispatch</div>
         <ul>
-          <li>Try /v1/chat/completions</li>
-          <li>Try /api/v1/chat/completions</li>
-          <li>Try /api/chat (Ollama)</li>
+          <li>Ollama detected via /api/tags first</li>
+          <li>Ollama → /api/chat + think:true</li>
+          <li>Others → /v1/chat/completions</li>
           <li>5 retries · 30s backoff</li>
           <li>Fallback model chain</li>
+          <li>think:true retry on 400</li>
         </ul>
       </div>
 
@@ -373,6 +377,7 @@
         <div class="step-title">SSE Stream</div>
         <ul>
           <li>Chunk-by-chunk response</li>
+          <li>Thinking block streamed live</li>
           <li>Markdown + KaTeX render</li>
           <li>Code blocks + copy button</li>
           <li>Usage tokens tracked</li>
@@ -419,6 +424,7 @@
             <li>router {model,url,key}</li>
             <li>categories {models[],provider}</li>
             <li>searxng {url,alwaysOn}</li>
+            <li>showThinking (boolean)</li>
             <li>Encrypted at rest</li>
           </ul>
         </div>

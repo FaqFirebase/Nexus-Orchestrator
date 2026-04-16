@@ -306,10 +306,18 @@ function getUserConfig(userId: string): any {
 
 // Config and conversations init/migration handled by db.ts initDb()
 
-// Pipes an upstream SSE ReadableStream reader to an Express response
-async function streamSseToResponse(reader: ReadableStreamDefaultReader<Uint8Array>, res: any) {
+// Pipes an upstream SSE ReadableStream reader to an Express response.
+// When showThinking is true, Ollama's message.thinking chunks are synthesized
+// into <think>...</think> tags within message.content so the client parser works.
+async function streamSseToResponse(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  res: any,
+  showThinking = false,
+) {
   const decoder = new TextDecoder();
   let buf = '';
+  let thinkOpen = false;
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -318,22 +326,42 @@ async function streamSseToResponse(reader: ReadableStreamDefaultReader<Uint8Arra
     buf = lines.pop() ?? '';
     for (const line of lines) {
       if (!line.trim()) continue;
-      let dataStr = line.startsWith('data: ') ? line.slice(6) : line;
+      const dataStr = line.startsWith('data: ') ? line.slice(6) : line;
       if (dataStr.trim() === '[DONE]') continue;
       try {
         const json = JSON.parse(dataStr);
         const openaiContent = json.choices?.[0]?.delta?.content;
-        const ollamaContent = json.message?.content;
+        const ollamaContent: string = json.message?.content ?? '';
+        const ollamaThinking: string = json.message?.thinking ?? '';
+
         let usage = null;
         if (json.usage) {
           usage = { prompt_tokens: json.usage.prompt_tokens, completion_tokens: json.usage.completion_tokens, total_tokens: json.usage.total_tokens };
         } else if (json.prompt_eval_count !== undefined || json.eval_count !== undefined) {
           usage = { prompt_tokens: json.prompt_eval_count || 0, completion_tokens: json.eval_count || 0, total_tokens: (json.prompt_eval_count || 0) + (json.eval_count || 0) };
         }
-        const content = openaiContent || ollamaContent;
-        if (content || usage) res.write(JSON.stringify({ message: { content }, usage }) + '\n');
+
+        if (showThinking && ollamaThinking) {
+          // Open the think block on first thinking token, then stream the rest
+          const prefix = thinkOpen ? '' : '<think>';
+          thinkOpen = true;
+          res.write(JSON.stringify({ message: { content: prefix + ollamaThinking } }) + '\n');
+        } else {
+          if (thinkOpen && ollamaContent) {
+            // Close the think block when content begins
+            res.write(JSON.stringify({ message: { content: '</think>' } }) + '\n');
+            thinkOpen = false;
+          }
+          const content = openaiContent || ollamaContent || undefined;
+          if (content || usage) res.write(JSON.stringify({ message: { content }, usage }) + '\n');
+        }
       } catch { /* skip invalid JSON */ }
     }
+  }
+
+  // Safety: close any unclosed think block (e.g. model stopped mid-think)
+  if (thinkOpen) {
+    res.write(JSON.stringify({ message: { content: '</think>' } }) + '\n');
   }
 }
 
@@ -776,9 +804,9 @@ async function startServer() {
       ];
     }
     return [
+      { url: `${base}/api/tags`, isOllama: true },
       { url: `${base}/v1/models`, isOllama: false },
       { url: `${base}/api/models`, isOllama: false },
-      { url: `${base}/api/tags`, isOllama: true },
     ];
   }
 
@@ -1217,6 +1245,8 @@ async function startServer() {
         return result;
       };
       const modelsToTry = buildModelsToTry();
+      const showThinkingEnabled: boolean = !!req.body.showThinkingEnabled && decision.category !== 'FAST';
+      log.info({ baseUrl, isOllama: ollamaUrls.has(baseUrl.replace(/\/$/, '')), showThinkingEnabled, category: decision.category }, 'Chat routing debug');
 
       // Web search tool calling — enabled when searxng is configured and not FAST category
       const searxngUrl = config.searxng?.url || '';
@@ -1261,6 +1291,7 @@ async function startServer() {
         }
 
         let urlIndex = 0;
+        let localThinkingEnabled = showThinkingEnabled;
         while (urlIndex < candidateUrls.length) {
           const url = candidateUrls[urlIndex];
           log.debug({ url, model: currentModel }, 'Attempting route');
@@ -1310,6 +1341,7 @@ async function startServer() {
                   return msg;
                 }),
                 stream: !searchEnabled,
+                ...(localThinkingEnabled && url.endsWith('/api/chat') ? { think: true } : {}),
                 ...(searchEnabled ? { tools: [webSearchTool], tool_choice: 'auto' } : { stream_options: { include_usage: true } })
               }),
               signal: attemptController.signal,
@@ -1336,6 +1368,13 @@ async function startServer() {
 
             if (attempt.status === 405 || attempt.status === 404) {
               urlIndex++;
+              continue;
+            }
+
+            // Model rejected think:true — retry the same URL without thinking
+            if (attempt.status === 400 && localThinkingEnabled && errText.includes('does not support thinking')) {
+              log.info({ url, model: currentModel }, 'Model does not support thinking — retrying without think:true');
+              localThinkingEnabled = false;
               continue;
             }
 
@@ -1469,7 +1508,8 @@ async function startServer() {
               model: decision.model,
               messages: followUpMessages,
               stream: true,
-              stream_options: { include_usage: true }
+              stream_options: { include_usage: true },
+              ...(showThinkingEnabled && isOllamaNative ? { think: true } : {}),
             }),
             signal: followUpController.signal,
           });
@@ -1481,7 +1521,7 @@ async function startServer() {
 
           const reader = followUpRes.body.getReader();
           req.on('close', () => { reader.cancel().catch(() => {}); });
-          await streamSseToResponse(reader, res);
+          await streamSseToResponse(reader, res, showThinkingEnabled && isOllamaNative);
         } else {
           // Model responded without using the tool — write content directly as SSE
           const content = firstJson.choices?.[0]?.message?.content || firstJson.message?.content || '';
@@ -1497,7 +1537,7 @@ async function startServer() {
             reader.cancel().catch(() => {});
           });
 
-          await streamSseToResponse(reader, res);
+          await streamSseToResponse(reader, res, localThinkingEnabled && fullUrl.endsWith('/api/chat'));
         }
       }
       res.end();

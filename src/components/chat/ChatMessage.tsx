@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Terminal, Cpu, FileText, Globe, ChevronDown, ChevronRight, ExternalLink, Copy, Check } from 'lucide-react';
+import { Terminal, Cpu, FileText, Globe, ChevronDown, ChevronRight, ExternalLink, Copy, Check, Brain } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -23,6 +23,24 @@ function preprocessLatex(content: string): string {
 }
 
 const COPY_RESET_DELAY = 2000;
+const THINK_OPEN_TAG = '<think>';
+const THINK_CLOSE_TAG = '</think>';
+
+function parseThinking(content: string): { thinking: string; response: string } {
+  const openIdx = content.indexOf(THINK_OPEN_TAG);
+  if (openIdx === -1) return { thinking: '', response: content };
+
+  const closeIdx = content.indexOf(THINK_CLOSE_TAG);
+  // Still streaming thinking — no close tag yet
+  if (closeIdx === -1) {
+    return { thinking: content.slice(openIdx + THINK_OPEN_TAG.length), response: '' };
+  }
+
+  return {
+    thinking: content.slice(openIdx + THINK_OPEN_TAG.length, closeIdx),
+    response: content.slice(closeIdx + THINK_CLOSE_TAG.length).trim(),
+  };
+}
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
   const [copied, setCopied] = useState(false);
@@ -62,10 +80,17 @@ function CodeBlock({ language, children }: { language: string; children: string 
 
 interface ChatMessageProps {
   msg: Message;
+  showThinkingEnabled?: boolean;
 }
 
-export default function ChatMessage({ msg }: ChatMessageProps) {
+export default function ChatMessage({ msg, showThinkingEnabled = true }: ChatMessageProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [thinkingOpen, setThinkingOpen] = useState(true);
+
+  const isAssistant = msg.role === 'assistant';
+  const { thinking, response } = isAssistant && showThinkingEnabled
+    ? parseThinking(msg.content)
+    : { thinking: '', response: msg.content };
 
   return (
     <div className="flex items-start gap-4">
@@ -97,6 +122,53 @@ export default function ChatMessage({ msg }: ChatMessageProps) {
             </div>
           )}
         </div>
+
+        {thinking && (
+          <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 overflow-hidden">
+            <button
+              onClick={() => setThinkingOpen(prev => !prev)}
+              className="flex items-center gap-2 w-full px-4 py-2 text-left hover:bg-purple-500/10 transition-colors"
+            >
+              {thinkingOpen ? <ChevronDown className="w-3 h-3 text-purple-400" /> : <ChevronRight className="w-3 h-3 text-purple-400" />}
+              <Brain className="w-3.5 h-3.5 text-purple-400" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-purple-400">Thinking</span>
+            </button>
+            {thinkingOpen && (
+              <div className="px-4 pb-3 text-sm leading-relaxed text-zinc-400 italic markdown-body max-h-96 overflow-y-auto">
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                  components={{
+                    code({ node, inline, className, children, ...props }: any) {
+                      const match = /language-(\w+)/.exec(className || '');
+                      return !inline && match ? (
+                        <CodeBlock language={match[1]}>{String(children).replace(/\n$/, '')}</CodeBlock>
+                      ) : (
+                        <code className="px-1.5 py-0.5 rounded bg-zinc-800 text-purple-400 font-mono text-xs border border-zinc-700" {...props}>
+                          {children}
+                        </code>
+                      );
+                    },
+                    p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc pl-6 mb-3 space-y-1">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal pl-6 mb-3 space-y-1">{children}</ol>,
+                    li: ({ children }) => <li className="text-zinc-400">{children}</li>,
+                    h1: ({ children }) => <h1 className="text-lg font-bold text-zinc-300 mt-6 mb-3">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-base font-bold text-zinc-300 mt-4 mb-2">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-sm font-bold text-zinc-300 mt-3 mb-1">{children}</h3>,
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-4 border-purple-500/30 pl-4 py-1 italic text-zinc-500 my-3 bg-purple-500/5 rounded-r">
+                        {children}
+                      </blockquote>
+                    ),
+                  }}
+                >
+                  {preprocessLatex(thinking)}
+                </ReactMarkdown>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="text-sm leading-relaxed text-zinc-200 markdown-body">
           <ReactMarkdown
@@ -134,7 +206,7 @@ export default function ChatMessage({ msg }: ChatMessageProps) {
               td: ({ children }) => <td className="p-3 border-b border-zinc-800/50 text-xs text-zinc-300">{children}</td>,
             }}
           >
-            {preprocessLatex(msg.content)}
+            {preprocessLatex(response)}
           </ReactMarkdown>
         </div>
 

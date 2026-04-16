@@ -10,6 +10,7 @@ interface UseChatDeps {
   setConversations: React.Dispatch<React.SetStateAction<any[]>>;
   config: NexusConfig;
   localModels: any[];
+  showThinkingEnabled: boolean;
 }
 
 const PLACEHOLDER_TITLES = ['New Chat', 'New Conversation', 'New Orchestration'];
@@ -18,7 +19,7 @@ export function useChat(deps: UseChatDeps) {
   const {
     messages, setMessages, conversations,
     activeConversationId, setActiveConversationId, setConversations,
-    config, localModels,
+    config, localModels, showThinkingEnabled,
   } = deps;
 
   const [input, setInput] = useState('');
@@ -255,6 +256,7 @@ export function useChat(deps: UseChatDeps) {
           messages: [...messages, { ...userMsg, content: fullPrompt }],
           decision,
           webSearchEnabled,
+          showThinkingEnabled,
         })
       });
 
@@ -365,7 +367,7 @@ export function useChat(deps: UseChatDeps) {
       setIsLoading(false);
       setRoutingStep('idle');
     }
-  }, [input, attachments, isLoading, activeConversationId, messages, setMessages, setConversations, setActiveConversationId, routeIntent, conversations, config]);
+  }, [input, attachments, isLoading, activeConversationId, messages, setMessages, setConversations, setActiveConversationId, routeIntent, conversations, config, showThinkingEnabled]);
 
   return {
     input,

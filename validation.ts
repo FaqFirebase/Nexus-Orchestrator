@@ -67,6 +67,7 @@ export const configSchema = z.object({
   }).optional(),
   categories: z.record(z.string(), categorySchema).optional(),
   routerCacheEnabled: z.boolean().optional(),
+  showThinking: z.boolean().optional(),
   searxng: z.object({
     url: z.string().optional().default(''),
     alwaysOn: z.boolean().optional().default(false),
@@ -100,6 +101,7 @@ export const chatSchema = z.object({
   messages: z.array(messageSchema).min(1, 'At least one message is required'),
   decision: decisionSchema,
   webSearchEnabled: z.boolean().optional().default(false),
+  showThinkingEnabled: z.boolean().optional().default(false),
 });
 
 // Conversations
