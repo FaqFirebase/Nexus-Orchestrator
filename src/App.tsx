@@ -22,6 +22,7 @@ export default function App() {
   const [activeTab, setActiveTab] = usePersistentTab();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showThinkingEnabled, setShowThinkingEnabled] = useState(true);
 
   const auth = useAuth();
 
@@ -53,7 +54,13 @@ export default function App() {
     setConversations: convos.setConversations,
     config: configHook.config,
     localModels: connection.localModels,
+    showThinkingEnabled,
   });
+
+  // Sync per-chat thinking toggle with global config default
+  useEffect(() => {
+    setShowThinkingEnabled(configHook.config.showThinking !== false);
+  }, [configHook.config.showThinking]);
 
   // Initialize on mount + 10s health check interval
   useEffect(() => {
@@ -175,6 +182,8 @@ export default function App() {
                   webSearchEnabled={chat.webSearchEnabled}
                   onToggleWebSearch={() => chat.setWebSearchEnabled(v => !v)}
                   searxngConfigured={!!(configHook.config.searxng?.url)}
+                  showThinkingEnabled={showThinkingEnabled}
+                  onToggleThinking={() => setShowThinkingEnabled(prev => !prev)}
                 />
               </ErrorBoundary>
             </div>

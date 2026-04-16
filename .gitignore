@@ -29,8 +29,10 @@ conversations.json
 .vscode/
 .kilo/
 
-# Architecture diagram
-architecture.html
+# Local project memory
+PROJECT_HISTORY.md
+PROJECT.md
+AGENT.md
 
 # Logs
 *.log

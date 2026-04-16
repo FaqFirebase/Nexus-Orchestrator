@@ -1,6 +1,29 @@
 # Changelog
 Version numbers are based off of Dock Hub releases.
 
+### v1.1.9
+- **Thinking toggle** — Live reasoning display for models that support it. The server sends `think: true` to confirmed Ollama instances using the native `/api/chat` endpoint; Ollama streams reasoning in `message.thinking` chunks which are synthesized server-side into `<think>...</think>` tags before forwarding to the client. Models that natively emit `<think>` tags (DeepSeek R1) are parsed identically. The reasoning appears in a collapsible purple section above the response, capped at a scrollable max height to prevent page jerk during streaming. Stays open until manually collapsed. Two toggle levels: a **global default** (on by default) in the System tab under Settings, and a **per-chat override** via the Brain icon in the chat input bar. Models that do not support thinking (Ollama 400 "does not support thinking") silently fall back to a normal response without erroring. FAST category always skips thinking.
+- **Ollama detection fix** — Provider health check now probes `/api/tags` before `/v1/models`. Previously Ollama's OpenAI-compatible `/v1/models` endpoint responded first, causing Ollama instances to be misidentified as generic providers and routed to `/v1/chat/completions` instead of the native `/api/chat` endpoint. This prevented `think: true` from ever being sent.
+- **Docker image size reduction** — Moved all frontend/build/type packages to devDependencies and added `npm prune --production` in the Dockerfile builder stage before copying to the production image. Runtime dependencies reduced to 7 packages (better-sqlite3, cookie, dotenv, express, express-rate-limit, pino, zod). Removed unused `node-fetch` dependency. Image size reduced from 127 MB to ~86 MB.
+- **Community standards** — Added CONTRIBUTING.md (getting started, project structure, commit format, PR guidelines, design principles), SECURITY.md (supported versions, reporting via GitHub private advisories, scope definitions), and GitHub issue templates (bug report, feature request, blank issues disabled).
+
+### v1.1.8
+- **Copy code snippets** — A **Copy** button appears on hover in the top-right corner of every code block in the chat. Clicking copies the raw code to the clipboard. The button shows a check icon and "Copied" for 2 seconds then resets.
+- **FAST category routing fix** — FAST is now restricted to pure micro-interactions (greetings, one-word replies, trivial arithmetic). Any prompt requiring knowledge retrieval, explanation, or a multi-sentence answer routes to GENERAL instead. Prevents FAST from incorrectly capturing prompts that need a capable model.
+- **Security hardening** — Multiple server-side security improvements with no user-facing behaviour changes:
+  - **CORS** — Origin header is now echoed explicitly instead of falling back to `*`. `Access-Control-Allow-Credentials` is only sent when a matching origin is present, making the combination spec-compliant.
+  - **SSRF** — Cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`, `metadata.internal`, `kubernetes.default.svc`) and IPv6 loopback are now blocked when saving provider URLs. Private LAN addresses (192.168.x, 10.x, 172.x) remain allowed — required for local Ollama/provider access.
+  - **Security headers** — Added `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Strict-Transport-Security` (HTTPS only), `Referrer-Policy`, and `Permissions-Policy` to all responses.
+  - **Rate limiting** — Password change endpoint (`PUT /api/auth/password`) now shares the auth rate limiter (20 req / 15 min).
+  - **Session management** — Expired sessions are swept hourly instead of only on access, preventing unbounded memory growth. Sessions are capped at 10 per user; oldest is evicted when the limit is reached.
+  - **Body size limits** — Global JSON body limit reduced from 50 MB to 1 MB. Chat and conversation endpoints retain a 20 MB limit to support base64-encoded vision images.
+  - **Reverse proxy trust** — `trust proxy` set correctly so `req.secure` reflects the upstream HTTPS state from Caddy. Cookie `secure` flag and HSTS no longer rely on a manually read `x-forwarded-proto` header.
+  - **Admin settings validation** — `PUT /api/admin/settings` now validates against a strict Zod schema; unknown fields are rejected.
+  - **Password complexity** — New passwords (register, change password, admin create/reset) now require at least one uppercase letter, one lowercase letter, and one digit in addition to the existing 8-character minimum.
+  - **Cookie parsing** — Custom cookie parser replaced with the `cookie` npm package, which handles URL-encoding and quoted-string edge cases correctly.
+  - **Error leakage** — Config read/save endpoints return generic error strings; full error details are logged server-side only.
+  - **API key decoupled from admin password** — `x-admin-key` header is now verified directly against the `ADMIN_API_KEY` env var using constant-time comparison, not against the stored password hash. Changing the admin login password no longer breaks API clients. Existing installs require no changes.
+
 ### v1.1.7
 - **Collapsible settings sections** — All sections in the Models tab (Local Providers, Cloud Provider, Web Search, Intent Router, Routing Logic & Decision Matrix, Discovered Models) can now be collapsed and expanded. Collapse state persists across page refreshes via localStorage.
 - **Active tab persists on refresh** — The selected tab (Chat, Models, System) is remembered across page refreshes. Navigating away and reloading returns you to the same tab.

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, X, FileText, Activity, Network, Shield, Square, Globe } from 'lucide-react';
+import { Send, Paperclip, X, FileText, Activity, Network, Shield, Square, Globe, Brain } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { Attachment } from '../../types';
 
@@ -16,12 +16,15 @@ interface ChatInputProps {
   webSearchEnabled: boolean;
   onToggleWebSearch: () => void;
   searxngConfigured: boolean;
+  showThinkingEnabled: boolean;
+  onToggleThinking: () => void;
 }
 
 export default function ChatInput({
   input, setInput, attachments, removeAttachment,
   isLoading, fileInputRef, handleFileSelect, handleSend, handleStop,
   webSearchEnabled, onToggleWebSearch, searxngConfigured,
+  showThinkingEnabled, onToggleThinking,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -83,6 +86,13 @@ export default function ChatInput({
               className="p-3 text-zinc-500 hover:text-emerald-500 transition-colors"
             >
               <Paperclip className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onToggleThinking}
+              title={showThinkingEnabled ? 'Thinking visible — click to hide' : 'Show model thinking'}
+              className={`p-3 transition-colors ${showThinkingEnabled ? 'text-purple-400' : 'text-zinc-500 hover:text-purple-400'}`}
+            >
+              <Brain className="w-4 h-4" />
             </button>
             {searxngConfigured && (
               <button

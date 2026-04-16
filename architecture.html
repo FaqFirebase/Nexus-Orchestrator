@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus Orchestrator — Architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #09090b; color: #e4e4e7; font-family: 'Segoe UI', system-ui, sans-serif; padding: 40px 20px; }
+    h1 { text-align: center; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: #fff; margin-bottom: 6px; }
+    .subtitle { text-align: center; font-size: 0.75rem; color: #52525b; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 40px; }
+
+    .diagram { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+
+    .row { display: flex; gap: 16px; align-items: stretch; }
+    .row.center { justify-content: center; }
+
+    .box {
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid #27272a;
+      flex: 1;
+    }
+    .box.frontend  { border-color: #3f3f46; background: #18181b; }
+    .box.backend   { border-color: #3f3f46; background: #18181b; }
+    .box.flow      { border-color: #27272a; background: #141417; }
+    .box.storage   { border-color: #27272a; background: #141417; }
+    .box.providers { border-color: #27272a; background: #141417; }
+
+    .box-title {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #27272a;
+    }
+    .frontend  .box-title { color: #818cf8; }
+    .backend   .box-title { color: #34d399; }
+    .flow      .box-title { color: #f59e0b; }
+    .storage   .box-title { color: #60a5fa; }
+    .providers .box-title { color: #a78bfa; }
+
+    /* Hooks row */
+    .hooks { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .hook {
+      background: #1c1c22;
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.72rem;
+    }
+    .hook .name { color: #818cf8; font-weight: 600; font-family: monospace; }
+    .hook .desc { color: #71717a; margin-top: 2px; font-size: 0.66rem; }
+
+    /* Components row */
+    .components { display: flex; gap: 10px; flex-wrap: wrap; }
+    .component {
+      background: #1c1c22;
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      padding: 10px 14px;
+      flex: 1;
+      min-width: 140px;
+    }
+    .component .name { font-size: 0.7rem; font-weight: 600; color: #e4e4e7; margin-bottom: 6px; }
+    .component ul { list-style: none; padding: 0; }
+    .component ul li { font-size: 0.64rem; color: #71717a; padding: 1px 0; }
+    .component ul li::before { content: '›  '; color: #52525b; }
+
+    /* Endpoints */
+    .endpoints { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .endpoint {
+      display: flex; align-items: center; gap: 8px;
+      background: #1c1c22; border: 1px solid #27272a; border-radius: 6px;
+      padding: 6px 10px;
+    }
+    .method {
+      font-size: 0.6rem; font-weight: 700; font-family: monospace;
+      padding: 2px 6px; border-radius: 4px; min-width: 36px; text-align: center;
+    }
+    .method.get   { background: #052e16; color: #4ade80; }
+    .method.post  { background: #172554; color: #60a5fa; }
+    .method.put   { background: #2d1b00; color: #fb923c; }
+    .method.del   { background: #2d0a0a; color: #f87171; }
+    .method.patch { background: #1e1b4b; color: #a78bfa; }
+    .endpoint .path  { font-family: monospace; font-size: 0.67rem; color: #a1a1aa; }
+    .endpoint .edesc { font-size: 0.62rem; color: #52525b; margin-left: auto; }
+    .endpoint.protected { border-color: #34d39930; }
+    .endpoint.admin     { border-color: #f59e0b30; }
+
+    .endpoint-group-label {
+      grid-column: 1 / -1;
+      font-size: 0.58rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #52525b;
+      padding: 8px 4px 2px;
+    }
+
+    /* Flow steps */
+    .flow-steps { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+    .step {
+      flex: 1; min-width: 160px;
+      background: #1c1c22; border: 1px solid #27272a; border-radius: 8px;
+      padding: 12px;
+      position: relative;
+    }
+    .step-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: #27272a; color: #a1a1aa;
+      font-size: 0.65rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 8px;
+    }
+    .step .step-title { font-size: 0.7rem; font-weight: 600; color: #e4e4e7; margin-bottom: 6px; }
+    .step ul { list-style: none; padding: 0; }
+    .step ul li { font-size: 0.63rem; color: #71717a; padding: 1px 0; }
+    .step ul li::before { content: '·  '; color: #52525b; }
+
+    .arrow {
+      display: flex; align-items: center; justify-content: center;
+      color: #3f3f46; font-size: 1.4rem; padding-top: 22px;
+      flex-shrink: 0;
+    }
+
+    /* Providers */
+    .provider-grid { display: flex; gap: 12px; }
+    .provider {
+      flex: 1; background: #1c1c22; border: 1px solid #27272a;
+      border-radius: 8px; padding: 14px;
+    }
+    .provider .pname { font-size: 0.7rem; font-weight: 700; margin-bottom: 4px; }
+    .provider .purl  { font-family: monospace; font-size: 0.62rem; color: #52525b; margin-bottom: 8px; }
+    .provider ul { list-style: none; padding: 0; }
+    .provider ul li { font-size: 0.63rem; color: #71717a; padding: 1px 0; }
+    .provider ul li::before { content: '›  '; color: #52525b; }
+    .provider.local  .pname { color: #4ade80; }
+    .provider.cloud  .pname { color: #60a5fa; }
+    .provider.router .pname { color: #f59e0b; }
+
+    /* Storage */
+    .storage-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+    .store {
+      flex: 1; min-width: 160px; background: #1c1c22; border: 1px solid #27272a;
+      border-radius: 8px; padding: 12px;
+    }
+    .store .sname { font-family: monospace; font-size: 0.68rem; color: #60a5fa; font-weight: 600; margin-bottom: 6px; }
+    .store ul { list-style: none; padding: 0; }
+    .store ul li { font-size: 0.63rem; color: #71717a; padding: 1px 0; }
+    .store ul li::before { content: '·  '; color: #52525b; }
+
+    /* Security badges */
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid #27272a; }
+    .badge {
+      font-size: 0.6rem; font-weight: 600; letter-spacing: 0.08em;
+      padding: 3px 8px; border-radius: 999px; border: 1px solid;
+    }
+    .badge.green  { color: #4ade80; border-color: #4ade8040; background: #052e1620; }
+    .badge.blue   { color: #60a5fa; border-color: #60a5fa40; background: #17255420; }
+    .badge.yellow { color: #fbbf24; border-color: #fbbf2440; background: #2d1b0020; }
+    .badge.red    { color: #f87171; border-color: #f8717140; background: #2d0a0a20; }
+    .badge.purple { color: #a78bfa; border-color: #a78bfa40; background: #1e1b4b20; }
+
+    /* connector arrows between sections */
+    .connector {
+      text-align: center; color: #3f3f46; font-size: 0.7rem;
+      letter-spacing: 0.05em; padding: 4px 0;
+    }
+    .connector span { color: #52525b; }
+  </style>
+</head>
+<body>
+
+<h1>Nexus Orchestrator</h1>
+<p class="subtitle">Architecture Overview · Express + React · v1.1.9 · Port 3000</p>
+
+<div class="diagram">
+
+  <!-- FRONTEND -->
+  <div class="box frontend">
+    <div class="box-title">Frontend — React 19 + Vite 6 + Tailwind 4</div>
+
+    <div class="hooks">
+      <div class="hook"><div class="name">useAuth</div><div class="desc">login · logout · register · httpOnly cookie</div></div>
+      <div class="hook"><div class="name">useConnection</div><div class="desc">provider health · model discovery</div></div>
+      <div class="hook"><div class="name">useConfig</div><div class="desc">config CRUD · categories · per-user</div></div>
+      <div class="hook"><div class="name">useConversations</div><div class="desc">create · select · rename · delete · projects</div></div>
+      <div class="hook"><div class="name">useChat</div><div class="desc">send · route intent · SSE stream · web search</div></div>
+      <div class="hook"><div class="name">usePersistentToggle</div><div class="desc">localStorage-backed collapse state</div></div>
+      <div class="hook"><div class="name">usePersistentTab</div><div class="desc">active tab persists across refresh</div></div>
+    </div>
+
+    <div class="components">
+      <div class="component">
+        <div class="name">Sidebar</div>
+        <ul>
+          <li>Paginated conversation list</li>
+          <li>Double-click rename</li>
+          <li>Right-click context menu</li>
+          <li>Project folders</li>
+          <li>Collapse / expand projects</li>
+        </ul>
+      </div>
+      <div class="component">
+        <div class="name">Chat Tab</div>
+        <ul>
+          <li>ChatMessage (MD + KaTeX)</li>
+          <li>Code blocks + copy button</li>
+          <li>Thinking block (collapsible)</li>
+          <li>RoutingStatus (live steps)</li>
+          <li>RoutingAnalysis (expand)</li>
+          <li>Web search sources</li>
+          <li>ChatInput + attachments</li>
+          <li>Globe toggle (web search)</li>
+          <li>Brain toggle (thinking)</li>
+        </ul>
+      </div>
+      <div class="component">
+        <div class="name">Models Tab</div>
+        <ul>
+          <li>ProviderConfig (collapsible)</li>
+          <li>RouterConfig (collapsible)</li>
+          <li>CategoryMappings (collapsible)</li>
+          <li>DiscoveredModels (collapsible)</li>
+          <li>Multi-provider support</li>
+          <li>Provider-grouped model list</li>
+        </ul>
+      </div>
+      <div class="component">
+        <div class="name">System Tab</div>
+        <ul>
+          <li>User management (admin)</li>
+          <li>Toggle registration</li>
+          <li>Export config JSON</li>
+          <li>Export conversations JSON</li>
+          <li>Router cache toggle</li>
+          <li>Show thinking toggle (global)</li>
+          <li>Version display</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">▼ <span>HTTP / SSE · same-origin · httpOnly session cookie</span> ▼</div>
+
+  <!-- BACKEND -->
+  <div class="box backend">
+    <div class="box-title">Backend — Express 4 · TypeScript 5.8 · Node 20 · Pino Logging</div>
+
+    <div class="endpoints">
+
+      <div class="endpoint-group-label">Auth</div>
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/api/auth/login</span><span class="edesc">set session cookie</span></div>
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/api/auth/logout</span><span class="edesc">clear cookie</span></div>
+      <div class="endpoint"><span class="method get">GET</span><span class="path">/api/auth/status</span><span class="edesc">isAuthenticated + user</span></div>
+      <div class="endpoint"><span class="method post">POST</span><span class="path">/api/auth/register</span><span class="edesc">self-registration</span></div>
+      <div class="endpoint protected"><span class="method put">PUT</span><span class="path">/api/auth/password</span><span class="edesc">change own password 🔒</span></div>
+
+      <div class="endpoint-group-label">Admin</div>
+      <div class="endpoint admin"><span class="method get">GET</span><span class="path">/api/admin/users</span><span class="edesc">list users ⚙</span></div>
+      <div class="endpoint admin"><span class="method post">POST</span><span class="path">/api/admin/users</span><span class="edesc">create user ⚙</span></div>
+      <div class="endpoint admin"><span class="method del">DEL</span><span class="path">/api/admin/users/:id</span><span class="edesc">delete user ⚙</span></div>
+      <div class="endpoint admin"><span class="method put">PUT</span><span class="path">/api/admin/users/:id/reset</span><span class="edesc">reset password ⚙</span></div>
+      <div class="endpoint admin"><span class="method get">GET</span><span class="path">/api/admin/settings</span><span class="edesc">registration toggle ⚙</span></div>
+      <div class="endpoint admin"><span class="method put">PUT</span><span class="path">/api/admin/settings</span><span class="edesc">update settings ⚙</span></div>
+
+      <div class="endpoint-group-label">Config · Models · Router · Chat</div>
+      <div class="endpoint protected"><span class="method get">GET</span><span class="path">/api/config</span><span class="edesc">masked config 🔒</span></div>
+      <div class="endpoint protected"><span class="method post">POST</span><span class="path">/api/config</span><span class="edesc">save + validate URLs 🔒</span></div>
+      <div class="endpoint protected"><span class="method get">GET</span><span class="path">/api/health</span><span class="edesc">ping all providers 🔒</span></div>
+      <div class="endpoint protected"><span class="method get">GET</span><span class="path">/api/models</span><span class="edesc">discover models 🔒</span></div>
+      <div class="endpoint protected"><span class="method post">POST</span><span class="path">/api/router</span><span class="edesc">classify intent 🔒</span></div>
+      <div class="endpoint protected"><span class="method post">POST</span><span class="path">/api/chat</span><span class="edesc">SSE stream 🔒</span></div>
+
+      <div class="endpoint-group-label">Conversations · Projects</div>
+      <div class="endpoint protected"><span class="method get">GET</span><span class="path">/api/conversations</span><span class="edesc">paginated list 🔒</span></div>
+      <div class="endpoint protected"><span class="method get">GET</span><span class="path">/api/conversations/export</span><span class="edesc">full export 🔒</span></div>
+      <div class="endpoint protected"><span class="method get">GET</span><span class="path">/api/conversations/:id</span><span class="edesc">full messages 🔒</span></div>
+      <div class="endpoint protected"><span class="method post">POST</span><span class="path">/api/conversations</span><span class="edesc">create 🔒</span></div>
+      <div class="endpoint protected"><span class="method put">PUT</span><span class="path">/api/conversations/:id</span><span class="edesc">update 🔒</span></div>
+      <div class="endpoint protected"><span class="method del">DEL</span><span class="path">/api/conversations/:id</span><span class="edesc">delete 🔒</span></div>
+      <div class="endpoint protected"><span class="method patch">PATCH</span><span class="path">/api/conversations/:id/project</span><span class="edesc">assign project 🔒</span></div>
+      <div class="endpoint protected"><span class="method get">GET</span><span class="path">/api/projects</span><span class="edesc">list projects 🔒</span></div>
+      <div class="endpoint protected"><span class="method post">POST</span><span class="path">/api/projects</span><span class="edesc">create project 🔒</span></div>
+      <div class="endpoint protected"><span class="method put">PUT</span><span class="path">/api/projects/:id</span><span class="edesc">rename / collapse 🔒</span></div>
+      <div class="endpoint protected"><span class="method del">DEL</span><span class="path">/api/projects/:id</span><span class="edesc">delete project 🔒</span></div>
+      <div class="endpoint"><span class="method get">GET</span><span class="path">*</span><span class="edesc">serve Vite SPA</span></div>
+
+    </div>
+
+    <div class="badges">
+      <span class="badge green">httpOnly Session Cookie</span>
+      <span class="badge green">Timing-Safe API Key Compare</span>
+      <span class="badge green">bcrypt Password Hash</span>
+      <span class="badge green">AES-256-GCM Encryption</span>
+      <span class="badge blue">Same-Origin CORS</span>
+      <span class="badge blue">Security Headers (CSP · HSTS · X-Frame)</span>
+      <span class="badge blue">trust proxy · req.secure</span>
+      <span class="badge blue">cookie npm · RFC-compliant parsing</span>
+      <span class="badge yellow">SSRF — Metadata Endpoint Block</span>
+      <span class="badge yellow">URL Scheme Validation</span>
+      <span class="badge yellow">Auth Rate Limiter (20/15 min)</span>
+      <span class="badge yellow">Body Limits (1 MB global · 20 MB chat)</span>
+      <span class="badge purple">Session Sweep (hourly)</span>
+      <span class="badge purple">Session Cap (10 per user)</span>
+      <span class="badge purple">Password Complexity (upper+lower+digit)</span>
+      <span class="badge red">Admin Settings — Strict Zod Schema</span>
+    </div>
+  </div>
+
+  <div class="connector">▼ <span>Message Flow</span> ▼</div>
+
+  <!-- FLOW -->
+  <div class="box flow">
+    <div class="box-title">Request Flow — User Message → Streamed Response</div>
+    <div class="flow-steps">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title">Attachment Check</div>
+        <ul>
+          <li>Images → force VISION</li>
+          <li>Docs → force DOCUMENT</li>
+          <li>None → router decides</li>
+        </ul>
+      </div>
+
+      <div class="arrow">→</div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title">Intent Router</div>
+        <ul>
+          <li>POST /api/router</li>
+          <li>ROUTER_MODEL classifies</li>
+          <li>8 categories</li>
+          <li>Cache hit → skip LLM call</li>
+          <li>Blank URL → local fallback</li>
+        </ul>
+      </div>
+
+      <div class="arrow">→</div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-title">Web Search (optional)</div>
+        <ul>
+          <li>Tool call injected if enabled</li>
+          <li>SearXNG queried server-side</li>
+          <li>Results appended to context</li>
+          <li>FAST category skips search</li>
+        </ul>
+      </div>
+
+      <div class="arrow">→</div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-title">Provider Dispatch</div>
+        <ul>
+          <li>Ollama detected via /api/tags first</li>
+          <li>Ollama → /api/chat + think:true</li>
+          <li>Others → /v1/chat/completions</li>
+          <li>5 retries · 30s backoff</li>
+          <li>Fallback model chain</li>
+          <li>think:true retry on 400</li>
+        </ul>
+      </div>
+
+      <div class="arrow">→</div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-title">SSE Stream</div>
+        <ul>
+          <li>Chunk-by-chunk response</li>
+          <li>Thinking block streamed live</li>
+          <li>Markdown + KaTeX render</li>
+          <li>Code blocks + copy button</li>
+          <li>Usage tokens tracked</li>
+          <li>Routing analysis shown</li>
+          <li>Web search sources shown</li>
+        </ul>
+      </div>
+
+      <div class="arrow">→</div>
+
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-title">Persist</div>
+        <ul>
+          <li>PUT /api/conversations/:id</li>
+          <li>Messages + routing saved</li>
+          <li>SQLite · AES-256-GCM</li>
+          <li>Auto-title from prompt</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STORAGE + PROVIDERS row -->
+  <div class="row">
+
+    <div class="box storage" style="flex:1">
+      <div class="box-title">Storage — SQLite (better-sqlite3) · AES-256-GCM · /app/data/</div>
+      <div class="storage-grid">
+        <div class="store">
+          <div class="sname">users</div>
+          <ul>
+            <li>id · username · role</li>
+            <li>password_hash (bcrypt)</li>
+            <li>created_at</li>
+          </ul>
+        </div>
+        <div class="store">
+          <div class="sname">user_config</div>
+          <ul>
+            <li>localProviders [{name,url,key}]</li>
+            <li>cloudUrl · cloudKey</li>
+            <li>router {model,url,key}</li>
+            <li>categories {models[],provider}</li>
+            <li>searxng {url,alwaysOn}</li>
+            <li>showThinking (boolean)</li>
+            <li>Encrypted at rest</li>
+          </ul>
+        </div>
+        <div class="store">
+          <div class="sname">conversations</div>
+          <ul>
+            <li>id · title · user_id</li>
+            <li>messages[] with roles</li>
+            <li>routing decisions</li>
+            <li>timestamps · usage</li>
+            <li>web search sources</li>
+          </ul>
+        </div>
+        <div class="store">
+          <div class="sname">projects</div>
+          <ul>
+            <li>id · name · user_id</li>
+            <li>collapsed state</li>
+            <li>conversations assigned by ID</li>
+          </ul>
+        </div>
+        <div class="store">
+          <div class="sname">admin_settings</div>
+          <ul>
+            <li>registrationEnabled</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="box providers" style="flex:2">
+      <div class="box-title">External Providers — OpenAI-Compatible</div>
+      <div class="provider-grid">
+        <div class="provider local">
+          <div class="pname">Local Providers (multiple)</div>
+          <div class="purl">http://[LAN-IP]:[port]</div>
+          <ul>
+            <li>Ollama</li>
+            <li>llama-swap</li>
+            <li>llama.cpp</li>
+            <li>LM Studio</li>
+            <li>Open WebUI</li>
+            <li>Any OpenAI-compat endpoint</li>
+          </ul>
+        </div>
+        <div class="provider cloud">
+          <div class="pname">Cloud Provider</div>
+          <div class="purl">https://[provider]/v1</div>
+          <ul>
+            <li>Gemini (googleapis)</li>
+            <li>OpenRouter</li>
+            <li>OpenAI</li>
+            <li>Any OpenAI-compat API</li>
+          </ul>
+        </div>
+        <div class="provider router">
+          <div class="pname">Intent Router</div>
+          <div class="purl">ROUTER_URL (or local fallback)</div>
+          <ul>
+            <li>Classifies into 8 categories</li>
+            <li>CODING · REASONING · CREATIVE</li>
+            <li>VISION · DOCUMENT · SECURITY</li>
+            <li>GENERAL · FAST</li>
+            <li>Returns category + model + confidence</li>
+            <li>5-min LRU cache (optional)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+</body>
+</html>

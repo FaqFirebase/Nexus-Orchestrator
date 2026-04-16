@@ -10,6 +10,7 @@ interface UseChatDeps {
   setConversations: React.Dispatch<React.SetStateAction<any[]>>;
   config: NexusConfig;
   localModels: any[];
+  showThinkingEnabled: boolean;
 }
 
 const PLACEHOLDER_TITLES = ['New Chat', 'New Conversation', 'New Orchestration'];
@@ -18,7 +19,7 @@ export function useChat(deps: UseChatDeps) {
   const {
     messages, setMessages, conversations,
     activeConversationId, setActiveConversationId, setConversations,
-    config, localModels,
+    config, localModels, showThinkingEnabled,
   } = deps;
 
   const [input, setInput] = useState('');
@@ -83,9 +84,9 @@ export function useChat(deps: UseChatDeps) {
       - CREATIVE: Writing stories, poems, marketing copy, brainstorming, humor, or any open-ended creative task.
       - VISION: ONLY when the user has attached an image and wants it analyzed, described, or interpreted. Requires Has Attachments = true with an image.
       - DOCUMENT: ONLY when the user has attached a document (PDF, text file) and wants it summarized, analyzed, or queried. Requires Has Attachments = true.
-      - FAST: Very simple questions, greetings, one-word answers, or trivial tasks that need minimal processing. Use when speed matters more than depth.
+      - FAST: ONLY for pure micro-interactions with no knowledge retrieval — greetings ("hi", "hello", "thanks"), single-word acknowledgements, or arithmetic so trivial it needs no explanation ("what is 2+2"). If the prompt asks ANY question about the world, a concept, a fact, a person, a technology, or requires more than one sentence to answer properly, do NOT use FAST.
       - SECURITY: Security analysis, vulnerability assessment, threat modeling, CTF challenges, penetration testing, malware analysis, or cybersecurity topics.
-      - GENERAL: Simple factual questions, casual conversation, or anything that doesn't clearly fit the above categories.
+      - GENERAL: The default for all conversational queries, factual questions, explanations, summaries, and anything that does not clearly fit a more specific category above. When in doubt, use GENERAL.
 
       Configured Categories and Models:
       ${categoriesPrompt}
@@ -95,7 +96,8 @@ export function useChat(deps: UseChatDeps) {
       - Prefer REASONING over GENERAL for questions that require explanation, comparison, or analysis.
       - Prefer CODING over GENERAL for anything code-related, even if the question is simple.
       - Prefer SECURITY over GENERAL for anything security/hacking/CTF related.
-      - Use FAST for trivial one-liner responses (greetings, yes/no, simple lookups) when the FAST category has models assigned.
+      - Default to GENERAL over FAST. Only use FAST for greetings, one-word replies, or arithmetic with no explanation needed.
+      - If the answer requires retrieving, explaining, or describing any fact or concept, use GENERAL not FAST.
       - Only use categories that appear in the configured list above.
 
       Return ONLY a JSON object with the following structure:
@@ -254,6 +256,7 @@ export function useChat(deps: UseChatDeps) {
           messages: [...messages, { ...userMsg, content: fullPrompt }],
           decision,
           webSearchEnabled,
+          showThinkingEnabled,
         })
       });
 
@@ -364,7 +367,7 @@ export function useChat(deps: UseChatDeps) {
       setIsLoading(false);
       setRoutingStep('idle');
     }
-  }, [input, attachments, isLoading, activeConversationId, messages, setMessages, setConversations, setActiveConversationId, routeIntent, conversations, config]);
+  }, [input, attachments, isLoading, activeConversationId, messages, setMessages, setConversations, setActiveConversationId, routeIntent, conversations, config, showThinkingEnabled]);
 
   return {
     input,

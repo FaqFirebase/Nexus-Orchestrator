@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
+import { parse as parseCookieHeader } from "cookie";
 import log from "./logger.js";
 import {
   initDb, readConfig, writeConfig, readUserConfig, writeUserConfig,
@@ -18,7 +19,8 @@ import {
   validate, loginSchema, registerSchema, changePasswordSchema, adminCreateUserSchema, adminResetPasswordSchema,
   configSchema, routerSchema, chatSchema,
   createConversationSchema, updateConversationSchema,
-  createProjectSchema, updateProjectSchema, assignConversationSchema
+  createProjectSchema, updateProjectSchema, assignConversationSchema,
+  adminSettingsSchema
 } from "./validation.js";
 
 dotenv.config();
@@ -37,19 +39,25 @@ const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || (() => {
 // Cookie helpers
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {};
-  return Object.fromEntries(
-    header.split(';').map(c => {
-      const [key, ...rest] = c.trim().split('=');
-      return [key, rest.join('=')];
-    })
-  );
+  return parseCookieHeader(header);
 }
 
 // Session management — maps session tokens to user IDs
 const sessions = new Map<string, { userId: string; expiresAt: number }>();
-const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000;        // 7 days
+const SESSION_SWEEP_INTERVAL = 60 * 60 * 1000;            // sweep every hour
+const SESSION_MAX_PER_USER = 10;                           // max concurrent sessions per user
 
 function createSession(userId: string): string {
+  // Evict oldest session for this user if at the per-user cap
+  const userTokens: Array<[string, number]> = [];
+  for (const [token, session] of sessions.entries()) {
+    if (session.userId === userId) userTokens.push([token, session.expiresAt]);
+  }
+  if (userTokens.length >= SESSION_MAX_PER_USER) {
+    userTokens.sort((a, b) => a[1] - b[1]);
+    sessions.delete(userTokens[0][0]);
+  }
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, { userId, expiresAt: Date.now() + SESSION_MAX_AGE });
   return token;
@@ -72,6 +80,13 @@ function deleteSession(token: string): void {
 function deleteUserSessions(userId: string): void {
   for (const [token, session] of sessions.entries()) {
     if (session.userId === userId) sessions.delete(token);
+  }
+}
+
+function sweepExpiredSessions(): void {
+  const now = Date.now();
+  for (const [token, session] of sessions.entries()) {
+    if (now > session.expiresAt) sessions.delete(token);
   }
 }
 
@@ -156,10 +171,13 @@ function setCachedRoute(userId: string, prompt: string, decision: any): void {
 }
 
 // SSRF protection: validate URLs before storing or fetching
+// Only blocks cloud metadata endpoints — private LAN IPs (192.168.x, 10.x, 172.x)
+// are intentionally allowed since Nexus is a self-hosted tool that connects to local providers.
 const BLOCKED_HOSTS = [
-  '169.254.169.254',       // AWS/GCP/Azure metadata
-  'metadata.google.internal',
-  'metadata.internal',
+  '169.254.169.254',          // AWS/GCP/Azure IMDS
+  'metadata.google.internal', // GCP metadata
+  'metadata.internal',        // GCP internal alias
+  'kubernetes.default.svc',   // Kubernetes API server
 ];
 
 function validateUrl(url: string): { valid: boolean; reason?: string } {
@@ -174,9 +192,13 @@ function validateUrl(url: string): { valid: boolean; reason?: string } {
     if (BLOCKED_HOSTS.includes(parsed.hostname)) {
       return { valid: false, reason: `Blocked host "${parsed.hostname}"` };
     }
-    // Block loopback to self
+    // Block IPv6 loopback
+    if (parsed.hostname === '[::1]' || parsed.hostname === '::1') {
+      return { valid: false, reason: 'IPv6 loopback is not allowed' };
+    }
+    // Block loopback to self on Nexus's own port
     const selfPort = process.env.PORT || '3000';
-    const selfHosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
+    const selfHosts = ['localhost', '127.0.0.1', '0.0.0.0'];
     if (selfHosts.includes(parsed.hostname) && (parsed.port === selfPort || (!parsed.port && selfPort === '80'))) {
       return { valid: false, reason: 'URL points back to Nexus Orchestrator itself' };
     }
@@ -243,14 +265,22 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
     }
   }
 
-  // Fallback: x-admin-key header for API clients — look up admin user
+  // Fallback: x-admin-key header for API clients — verified against ADMIN_API_KEY env var,
+  // not the DB password hash. This decouples API access from the admin login password:
+  // changing the admin password in the UI does not affect API clients.
   const headerKey = req.headers['x-admin-key'] as string;
-  if (headerKey) {
-    const adminUser = getUserByUsername('admin');
-    if (adminUser && verifyPassword(headerKey, adminUser.passwordHash)) {
-      req.userId = adminUser.id;
-      req.userRole = adminUser.role;
-      return next();
+  if (headerKey && ADMIN_API_KEY) {
+    const headerBuf = Buffer.from(headerKey);
+    const keyBuf = Buffer.from(ADMIN_API_KEY);
+    const keysMatch = headerBuf.length === keyBuf.length &&
+      crypto.timingSafeEqual(headerBuf, keyBuf);
+    if (keysMatch) {
+      const adminUser = getUserByUsername('admin');
+      if (adminUser) {
+        req.userId = adminUser.id;
+        req.userRole = adminUser.role;
+        return next();
+      }
     }
   }
 
@@ -276,10 +306,18 @@ function getUserConfig(userId: string): any {
 
 // Config and conversations init/migration handled by db.ts initDb()
 
-// Pipes an upstream SSE ReadableStream reader to an Express response
-async function streamSseToResponse(reader: ReadableStreamDefaultReader<Uint8Array>, res: any) {
+// Pipes an upstream SSE ReadableStream reader to an Express response.
+// When showThinking is true, Ollama's message.thinking chunks are synthesized
+// into <think>...</think> tags within message.content so the client parser works.
+async function streamSseToResponse(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  res: any,
+  showThinking = false,
+) {
   const decoder = new TextDecoder();
   let buf = '';
+  let thinkOpen = false;
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -288,22 +326,42 @@ async function streamSseToResponse(reader: ReadableStreamDefaultReader<Uint8Arra
     buf = lines.pop() ?? '';
     for (const line of lines) {
       if (!line.trim()) continue;
-      let dataStr = line.startsWith('data: ') ? line.slice(6) : line;
+      const dataStr = line.startsWith('data: ') ? line.slice(6) : line;
       if (dataStr.trim() === '[DONE]') continue;
       try {
         const json = JSON.parse(dataStr);
         const openaiContent = json.choices?.[0]?.delta?.content;
-        const ollamaContent = json.message?.content;
+        const ollamaContent: string = json.message?.content ?? '';
+        const ollamaThinking: string = json.message?.thinking ?? '';
+
         let usage = null;
         if (json.usage) {
           usage = { prompt_tokens: json.usage.prompt_tokens, completion_tokens: json.usage.completion_tokens, total_tokens: json.usage.total_tokens };
         } else if (json.prompt_eval_count !== undefined || json.eval_count !== undefined) {
           usage = { prompt_tokens: json.prompt_eval_count || 0, completion_tokens: json.eval_count || 0, total_tokens: (json.prompt_eval_count || 0) + (json.eval_count || 0) };
         }
-        const content = openaiContent || ollamaContent;
-        if (content || usage) res.write(JSON.stringify({ message: { content }, usage }) + '\n');
+
+        if (showThinking && ollamaThinking) {
+          // Open the think block on first thinking token, then stream the rest
+          const prefix = thinkOpen ? '' : '<think>';
+          thinkOpen = true;
+          res.write(JSON.stringify({ message: { content: prefix + ollamaThinking } }) + '\n');
+        } else {
+          if (thinkOpen && ollamaContent) {
+            // Close the think block when content begins
+            res.write(JSON.stringify({ message: { content: '</think>' } }) + '\n');
+            thinkOpen = false;
+          }
+          const content = openaiContent || ollamaContent || undefined;
+          if (content || usage) res.write(JSON.stringify({ message: { content }, usage }) + '\n');
+        }
       } catch { /* skip invalid JSON */ }
     }
+  }
+
+  // Safety: close any unclosed think block (e.g. model stopped mid-think)
+  if (thinkOpen) {
+    res.write(JSON.stringify({ message: { content: '</think>' } }) + '\n');
   }
 }
 
@@ -383,20 +441,50 @@ async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
-  app.use(express.json({ limit: '50mb' }));
+  // Trust the first reverse proxy (Caddy) so req.secure reflects X-Forwarded-Proto correctly
+  app.set('trust proxy', 1);
+
+  // Global body limit — 1MB covers all non-media endpoints.
+  // Chat and conversation routes that may carry base64 images get a higher override.
+  const LARGE_BODY_LIMIT = '20mb';
+  app.use('/api/chat', express.json({ limit: LARGE_BODY_LIMIT }));
+  app.use('/api/conversations', express.json({ limit: LARGE_BODY_LIMIT }));
+  app.use(express.json({ limit: '1mb' }));
 
   // CORS — only allow same-origin requests
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     const host = req.headers.host;
-    // Allow requests with no origin (same-origin, curl, etc.) or matching origin
-    if (!origin || origin === `http://${host}` || origin === `https://${host}`) {
-      res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    const isSameOrigin = origin === `http://${host}` || origin === `https://${host}`;
+    // Allow requests with no origin (same-origin browser requests, curl, server-to-server)
+    // or requests whose origin exactly matches our host
+    if (!origin || isSameOrigin) {
+      if (origin) {
+        // Echo the specific origin — never use wildcard with credentials
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-admin-key');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
+  // Security headers
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'"
+    );
+    // HSTS — only set over HTTPS to avoid breaking plain HTTP dev/LAN access
+    if (res.req.secure) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
   });
 
@@ -407,9 +495,13 @@ async function startServer() {
     bootstrapAdmin(ADMIN_API_KEY, ENCRYPTION_SECRET, DEFAULT_CONFIG);
   }
 
+  // Periodic sweep of expired sessions to prevent unbounded Map growth
+  const sessionSweepTimer = setInterval(sweepExpiredSessions, SESSION_SWEEP_INTERVAL);
+  sessionSweepTimer.unref(); // don't keep process alive solely for sweep
+
   // Clean shutdown
-  process.on('SIGTERM', () => { closeDb(); process.exit(0); });
-  process.on('SIGINT', () => { closeDb(); process.exit(0); });
+  process.on('SIGTERM', () => { clearInterval(sessionSweepTimer); closeDb(); process.exit(0); });
+  process.on('SIGINT', () => { clearInterval(sessionSweepTimer); closeDb(); process.exit(0); });
 
   // ─── Auth Endpoints ───
 
@@ -451,7 +543,7 @@ async function startServer() {
     res.cookie('nexus_session', token, {
       httpOnly: true,
       sameSite: 'strict',
-      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      secure: req.secure,
       path: '/',
       maxAge: SESSION_MAX_AGE,
     });
@@ -493,7 +585,7 @@ async function startServer() {
     res.cookie('nexus_session', token, {
       httpOnly: true,
       sameSite: 'strict',
-      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      secure: req.secure,
       path: '/',
       maxAge: SESSION_MAX_AGE,
     });
@@ -508,7 +600,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.put("/api/auth/password", authMiddleware, validate(changePasswordSchema), (req, res) => {
+  app.put("/api/auth/password", authMiddleware, authLimiter, validate(changePasswordSchema), (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const user = getUserById(req.userId!);
     if (!user || !verifyPassword(currentPassword, user.passwordHash)) {
@@ -523,7 +615,7 @@ async function startServer() {
     res.cookie('nexus_session', token, {
       httpOnly: true,
       sameSite: 'strict',
-      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      secure: req.secure,
       path: '/',
       maxAge: SESSION_MAX_AGE,
     });
@@ -589,7 +681,7 @@ async function startServer() {
     res.json(getAdminSettings());
   });
 
-  app.put("/api/admin/settings", authMiddleware, adminMiddleware, (req, res) => {
+  app.put("/api/admin/settings", authMiddleware, adminMiddleware, validate(adminSettingsSchema), (req, res) => {
     const current = getAdminSettings();
     const updated = { ...current, ...req.body };
     updateAdminSettings(updated);
@@ -620,7 +712,7 @@ async function startServer() {
       res.json(maskedConfig);
     } catch (error: any) {
       log.error({ err: error }, 'Config read error');
-      res.status(500).json({ error: "Failed to read config: " + error.message });
+      res.status(500).json({ error: "Failed to read configuration" });
     }
   });
 
@@ -685,7 +777,7 @@ async function startServer() {
       res.json({ status: "ok" });
     } catch (error: any) {
       log.error({ err: error }, 'Config save error');
-      res.status(500).json({ error: `Failed to save config: ${error.message}` });
+      res.status(500).json({ error: "Failed to save configuration" });
     }
   });
 
@@ -712,9 +804,9 @@ async function startServer() {
       ];
     }
     return [
+      { url: `${base}/api/tags`, isOllama: true },
       { url: `${base}/v1/models`, isOllama: false },
       { url: `${base}/api/models`, isOllama: false },
-      { url: `${base}/api/tags`, isOllama: true },
     ];
   }
 
@@ -1153,6 +1245,8 @@ async function startServer() {
         return result;
       };
       const modelsToTry = buildModelsToTry();
+      const showThinkingEnabled: boolean = !!req.body.showThinkingEnabled && decision.category !== 'FAST';
+      log.info({ baseUrl, isOllama: ollamaUrls.has(baseUrl.replace(/\/$/, '')), showThinkingEnabled, category: decision.category }, 'Chat routing debug');
 
       // Web search tool calling — enabled when searxng is configured and not FAST category
       const searxngUrl = config.searxng?.url || '';
@@ -1179,6 +1273,7 @@ async function startServer() {
 
       let response: any = null;
       let lastError: any = null;
+      let localThinkingEnabled = showThinkingEnabled;
 
       for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
         const { model: currentModel, baseUrl: modelBaseUrl, apiKey: modelApiKey } = modelsToTry[modelIdx];
@@ -1246,6 +1341,7 @@ async function startServer() {
                   return msg;
                 }),
                 stream: !searchEnabled,
+                ...(localThinkingEnabled && url.endsWith('/api/chat') ? { think: true } : {}),
                 ...(searchEnabled ? { tools: [webSearchTool], tool_choice: 'auto' } : { stream_options: { include_usage: true } })
               }),
               signal: attemptController.signal,
@@ -1272,6 +1368,13 @@ async function startServer() {
 
             if (attempt.status === 405 || attempt.status === 404) {
               urlIndex++;
+              continue;
+            }
+
+            // Model rejected think:true — retry the same URL without thinking
+            if (attempt.status === 400 && localThinkingEnabled && errText.includes('does not support thinking')) {
+              log.info({ url, model: currentModel }, 'Model does not support thinking — retrying without think:true');
+              localThinkingEnabled = false;
               continue;
             }
 
@@ -1405,7 +1508,8 @@ async function startServer() {
               model: decision.model,
               messages: followUpMessages,
               stream: true,
-              stream_options: { include_usage: true }
+              stream_options: { include_usage: true },
+              ...(showThinkingEnabled && isOllamaNative ? { think: true } : {}),
             }),
             signal: followUpController.signal,
           });
@@ -1417,7 +1521,7 @@ async function startServer() {
 
           const reader = followUpRes.body.getReader();
           req.on('close', () => { reader.cancel().catch(() => {}); });
-          await streamSseToResponse(reader, res);
+          await streamSseToResponse(reader, res, showThinkingEnabled && isOllamaNative);
         } else {
           // Model responded without using the tool — write content directly as SSE
           const content = firstJson.choices?.[0]?.message?.content || firstJson.message?.content || '';
@@ -1433,7 +1537,7 @@ async function startServer() {
             reader.cancel().catch(() => {});
           });
 
-          await streamSseToResponse(reader, res);
+          await streamSseToResponse(reader, res, localThinkingEnabled && fullUrl.endsWith('/api/chat'));
         }
       }
       res.end();

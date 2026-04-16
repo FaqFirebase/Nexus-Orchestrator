@@ -79,6 +79,21 @@ export default function SystemTab({ config, conversations, fetchConversations, o
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${config.routerCacheEnabled ? 'translate-x-5' : ''}`} />
               </button>
             </div>
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <p className="text-sm text-zinc-200 font-medium">Show Model Thinking</p>
+                <p className="text-[10px] text-zinc-500 font-mono mt-0.5">Display reasoning from thinking models (DeepSeek R1, QwQ, etc.) in a collapsible section above responses.</p>
+              </div>
+              <button
+                onClick={() => {
+                  const updated = { ...config, showThinking: config.showThinking === false ? true : false };
+                  onSaveConfig(updated);
+                }}
+                className={`relative w-11 h-6 rounded-full transition-colors ${config.showThinking !== false ? 'bg-purple-500' : 'bg-zinc-700'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${config.showThinking !== false ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
           </div>
 
           {/* Config JSON */}

@@ -24,7 +24,7 @@ Run Nexus Orchestrator on Unraid using Docker. This guide covers installation, c
 - [Ollama](https://ollama.com) running on your network (local machine, NAS, or another server) with at least one model pulled
 - The Ollama host IP — **do not use `localhost`** inside Docker containers
 
-> **Tested on:** Unraid 6.12+ · Nexus Orchestrator 1.1.0 · Ollama 0.6+
+> **Tested on:** Unraid 6.12+ · Nexus Orchestrator 1.1.8 · Ollama 0.6+
 
 ---
 
@@ -72,7 +72,7 @@ This is where your database, config, and conversation history are stored. All da
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ADMIN_API_KEY` | ✅ Yes | — | Password for the admin account (username: `admin`). On first run, an admin user is auto-created with this password. |
+| `ADMIN_API_KEY` | ✅ Yes | — | Master secret for this instance. Used as the initial admin login password on first run and as the API key for `x-admin-key` header access. Changing your password in the UI does not affect this value — API clients continue to use `ADMIN_API_KEY` regardless. |
 | `ENCRYPTION_SECRET` | Recommended | *(derived from ADMIN_API_KEY)* | Separate secret for encrypting stored data. Set a unique value in production. |
 | `LOCAL_URL` | ✅ Yes | `http://localhost:11434` | Base URL of your Ollama (or local OpenAI-compatible) provider. Use the LAN IP — not `localhost`. Example: `http://192.168.1.50:11434` |
 | `LOCAL_KEY` | No | *(empty)* | API key for local provider. Leave blank for standard Ollama. |
@@ -249,6 +249,8 @@ Nexus supports multiple users, each with their own provider config, conversation
 3. Enter a username, password, and role (user or admin)
 4. The new user inherits your current config as their starting defaults
 
+> **Password requirements:** All passwords (new users, password changes) must be at least 8 characters and contain at least one uppercase letter, one lowercase letter, and one digit. Your initial `ADMIN_API_KEY` is exempt from this — it is accepted as-is on first run.
+
 **Or enable self-registration:**
 1. In User Management, toggle **Public Registration** on
 2. New users will see a "Register" link on the login screen
@@ -333,7 +335,7 @@ Or if running as a service, add it to the systemd unit.
 
 **Cause:** Ollama is loading the model into VRAM for the first time. This can take 10–60+ seconds for large models.
 
-**Fix:** This is expected. Nexus has a 60-second per-attempt timeout and will retry up to 3 times. Wait for the model to load — subsequent messages will be fast.
+**Fix:** This is expected. Nexus has a 300-second per-attempt timeout and will retry up to 5 times (up to 150 seconds of retry wait). Wait for the model to load — subsequent messages will be fast.
 
 ---
 
