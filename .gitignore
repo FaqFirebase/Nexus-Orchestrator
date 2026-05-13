@@ -28,6 +28,7 @@ conversations.json
 .codex
 .vscode/
 .kilo/
+.serena
 
 # Local project memory
 PROJECT_HISTORY.md

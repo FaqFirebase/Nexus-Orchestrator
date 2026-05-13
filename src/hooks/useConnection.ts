@@ -18,8 +18,6 @@ export function useConnection(deps: UseConnectionDeps) {
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ status: 'checking' });
   const [localModels, setLocalModels] = useState<any[]>([]);
-  const [pingResult, setPingResult] = useState<{ time?: number; error?: string } | null>(null);
-  const [isPinging, setIsPinging] = useState(false);
 
   const checkConnection = useCallback(async (includeConfig = true) => {
     try {
@@ -89,30 +87,9 @@ export function useConnection(deps: UseConnectionDeps) {
     }
   }, [showLoginModal, setAuthRequired, setIsAuthorized, setShowLoginModal, setConfig, setUser, setRegistrationEnabled, clearConversationState]);
 
-  const runPing = useCallback(async () => {
-    setIsPinging(true);
-    setPingResult(null);
-    const start = Date.now();
-    try {
-      const res = await fetch(`${window.location.origin}/api/health`);
-      if (res.ok) {
-        setPingResult({ time: Date.now() - start });
-      } else {
-        setPingResult({ error: `HTTP ${res.status}` });
-      }
-    } catch (err: any) {
-      setPingResult({ error: err.message });
-    } finally {
-      setIsPinging(false);
-    }
-  }, []);
-
   return {
     connectionStatus,
     localModels,
-    pingResult,
-    isPinging,
     checkConnection,
-    runPing,
   };
 }

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { NexusConfig, ModelCategory } from '../types';
+import type { NexusConfig } from '../types';
 import { DEFAULT_CONFIG } from '../constants';
 
 interface UseConfigDeps {

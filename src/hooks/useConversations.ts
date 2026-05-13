@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { Message, Conversation, Project } from '../types';
 
 const PAGE_SIZE = 50;
@@ -8,12 +8,7 @@ export function useConversations() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(true);
-  const [totalCount, setTotalCount] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
-
-  // Ref so fetchConversations doesn't recreate every time activeConversationId changes
-  const activeConversationIdRef = useRef<string | null>(null);
-  activeConversationIdRef.current = activeConversationId;
 
   const clearAll = useCallback(() => {
     setConversations([]);
@@ -21,8 +16,6 @@ export function useConversations() {
     setProjects([]);
     setActiveConversationId(null);
     setHasMore(true);
-    setTotalCount(0);
-    activeConversationIdRef.current = null;
   }, []);
 
   const fetchConversations = useCallback(async () => {
@@ -33,7 +26,6 @@ export function useConversations() {
         const convs = data.conversations || data;
         setConversations(convs);
         if (data.total !== undefined) {
-          setTotalCount(data.total);
           setHasMore(convs.length < data.total);
         } else {
           setHasMore(false);
@@ -66,7 +58,6 @@ export function useConversations() {
         const newConvs = data.conversations || [];
         setConversations(prev => [...prev, ...newConvs]);
         if (data.total !== undefined) {
-          setTotalCount(data.total);
           setHasMore(offset + newConvs.length < data.total);
         } else {
           setHasMore(false);
@@ -89,7 +80,6 @@ export function useConversations() {
         setConversations(prev => [newConv, ...prev]);
         setActiveConversationId(newConv.id);
         setMessages([]);
-        setTotalCount(prev => prev + 1);
       }
     } catch (err) {
       console.error("Failed to create conversation", err);
@@ -119,7 +109,6 @@ export function useConversations() {
           }
           return remaining;
         });
-        setTotalCount(prev => Math.max(0, prev - 1));
       }
     } catch (err) {
       console.error("Failed to delete conversation", err);
@@ -232,7 +221,6 @@ export function useConversations() {
         setProjects(prev => prev.filter(p => p.id !== id));
         if (deleteChats) {
           setConversations(prev => prev.filter(c => c.projectId !== id));
-          setTotalCount(prev => Math.max(0, prev - conversations.filter(c => c.projectId === id).length));
         } else {
           setConversations(prev => prev.map(c => c.projectId === id ? { ...c, projectId: null } : c));
         }
@@ -240,7 +228,7 @@ export function useConversations() {
     } catch (err) {
       console.error("Failed to delete project", err);
     }
-  }, [conversations]);
+  }, []);
 
   const assignConversationToProject = useCallback(async (convId: string, projectId: string | null) => {
     try {
@@ -257,22 +245,6 @@ export function useConversations() {
     }
   }, []);
 
-  const updateActiveConversationMessages = useCallback(async (newMessages: Message[]) => {
-    if (!activeConversationId) return;
-    try {
-      await fetch(`${window.location.origin}/api/conversations/${activeConversationId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages })
-      });
-      setConversations(prev => prev.map(c =>
-        c.id === activeConversationId ? { ...c, messages: newMessages } : c
-      ));
-    } catch (err) {
-      console.error("Failed to update conversation messages", err);
-    }
-  }, [activeConversationId]);
-
   return {
     conversations,
     setConversations,
@@ -284,12 +256,10 @@ export function useConversations() {
     fetchConversations,
     loadMoreConversations,
     hasMore,
-    totalCount,
     createNewConversation,
     deleteConversation,
     selectConversation,
     renameConversation,
-    updateActiveConversationMessages,
     // Projects
     projects,
     fetchProjects,
