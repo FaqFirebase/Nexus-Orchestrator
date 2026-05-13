@@ -1,16 +1,15 @@
 import express from "express";
 import path from "path";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { parse as parseCookieHeader } from "cookie";
 import log from "./logger.js";
 import {
-  initDb, readConfig, writeConfig, readUserConfig, writeUserConfig,
+  initDb, readUserConfig, writeUserConfig,
   listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv,
   listProjects, createProject, updateProject, deleteProject, assignConversation,
-  bootstrapAdmin, createUser, getUserByUsername, getUserById, listUsers, updateUserPassword, deleteUser, getUserCount,
+  bootstrapAdmin, createUser, getUserByUsername, getUserById, listUsers, updateUserPassword, deleteUser,
   getAdminSettings, updateAdminSettings,
   close as closeDb
 } from "./db.js";
@@ -24,9 +23,6 @@ import {
 } from "./validation.js";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || (() => {
@@ -488,7 +484,7 @@ async function startServer() {
     next();
   });
 
-  const initialConfig = await initDb(ENCRYPTION_SECRET, DEFAULT_CONFIG);
+  await initDb(ENCRYPTION_SECRET, DEFAULT_CONFIG);
 
   // Bootstrap admin user from ADMIN_API_KEY if no users exist
   if (ADMIN_API_KEY) {
@@ -768,6 +764,24 @@ async function startServer() {
           const incomingKey = newConfig.localProviders[i].key;
           if (incomingKey && (incomingKey.includes("...") || incomingKey === "****")) {
             newConfig.localProviders[i].key = currentConfig.localProviders?.[i]?.key || '';
+          }
+        }
+      }
+
+      // Canonicalize category model providerUrls against the current provider list.
+      // CategoryModel stores { name, providerUrl } at assignment time — if a provider URL is
+      // renamed (even in a prior save), stale entries won't match any known provider.
+      // Replace any unrecognised providerUrl with the first local provider URL as fallback.
+      if (newConfig.localProviders?.length > 0 && newConfig.categories) {
+        const normalize = (u: string) => u.replace(/\/$/, '').toLowerCase();
+        const knownUrls = new Set((newConfig.localProviders as any[]).map((p: any) => normalize(p.url || '')));
+        const fallbackUrl = newConfig.localProviders[0].url;
+        for (const cat of Object.values(newConfig.categories) as any[]) {
+          if (!Array.isArray(cat.models)) continue;
+          for (const m of cat.models) {
+            if (m && m.providerUrl && !knownUrls.has(normalize(m.providerUrl))) {
+              m.providerUrl = fallbackUrl;
+            }
           }
         }
       }
@@ -1227,8 +1241,6 @@ async function startServer() {
         }
         return endpoints;
       };
-
-      const hasAttachments = messages.some((m: any) => m.attachments && m.attachments.length > 0);
 
       // Build ordered list of { model, baseUrl, apiKey } to try — each fallback may come from a different provider
       const buildModelsToTry = (): Array<{ model: string; baseUrl: string; apiKey: string }> => {
@@ -1695,7 +1707,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

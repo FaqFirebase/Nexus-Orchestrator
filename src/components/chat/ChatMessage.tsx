@@ -54,7 +54,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
 
   return (
     <div className="relative group/code my-4">
-      <div className="absolute -top-3 right-4 flex items-center gap-2 z-10 opacity-0 group-hover/code:opacity-100 transition-opacity">
+      <div className="absolute top-2 right-2 flex items-center gap-2 z-10 opacity-0 group-hover/code:opacity-100 transition-opacity">
         <button
           onClick={handleCopy}
           className="flex items-center gap-1 px-2 py-1 bg-zinc-800 rounded text-[10px] font-bold uppercase tracking-widest border transition-colors border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/30"
@@ -66,14 +66,17 @@ function CodeBlock({ language, children }: { language: string; children: string 
           {language}
         </div>
       </div>
-      <SyntaxHighlighter
-        style={vscDarkPlus}
-        language={language}
-        PreTag="div"
-        className="rounded-xl !bg-black/50 !p-6 border border-zinc-800/50 !m-0"
-      >
-        {children}
-      </SyntaxHighlighter>
+      <div className="overflow-x-auto rounded-xl border border-zinc-800/50">
+        <SyntaxHighlighter
+          style={vscDarkPlus}
+          language={language}
+          PreTag="div"
+          className="!bg-black/50 !p-6 !m-0 !rounded-none"
+          codeTagProps={{ style: { whiteSpace: 'pre' } }}
+        >
+          {children}
+        </SyntaxHighlighter>
+      </div>
     </div>
   );
 }
