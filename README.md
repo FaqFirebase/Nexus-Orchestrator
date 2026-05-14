@@ -293,4 +293,4 @@ See **[roadmap.html](roadmap.html)** for the full visual roadmap (planned items 
 
 **v1.1.8** — Copy button on code blocks (hover to reveal, 2-second "Copied" feedback). FAST category routing tightened — now restricted to greetings and micro-interactions only; factual questions route to GENERAL. Security hardening: CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
 
-See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+See [changelog.html](changelog.html) for the full release history.
