@@ -14,6 +14,7 @@ import {
   close as closeDb
 } from "./db.js";
 import { hashPassword, verifyPassword } from "./crypto.js";
+import { fetchUrlAndStrip } from "./fetchUrl.js";
 import {
   validate, loginSchema, registerSchema, changePasswordSchema, adminCreateUserSchema, adminResetPasswordSchema,
   configSchema, routerSchema, chatSchema,
@@ -1283,6 +1284,24 @@ async function startServer() {
         }
       };
 
+      const fetchUrlTool = {
+        type: 'function',
+        function: {
+          name: 'fetch_url',
+          description: 'Fetch a URL and return its page contents as plain text. Use this to read a specific web page (e.g. one returned by web_search) for details beyond the search snippet.',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: { type: 'string', description: 'The absolute http(s) URL to fetch' }
+            },
+            required: ['url']
+          }
+        }
+      };
+
+      const toolList = [webSearchTool, fetchUrlTool];
+      const MAX_TOOL_ITERATIONS = 4;
+
       let response: any = null;
       let lastError: any = null;
       let localThinkingEnabled = showThinkingEnabled;
@@ -1354,7 +1373,7 @@ async function startServer() {
                 }),
                 stream: !searchEnabled,
                 ...(localThinkingEnabled && url.endsWith('/api/chat') ? { think: true } : {}),
-                ...(searchEnabled ? { tools: [webSearchTool], tool_choice: 'auto' } : { stream_options: { include_usage: true } })
+                ...(searchEnabled ? { tools: toolList, tool_choice: 'auto' } : { stream_options: { include_usage: true } })
               }),
               signal: attemptController.signal,
             });
@@ -1454,90 +1473,146 @@ async function startServer() {
       res.setHeader("Connection", "keep-alive");
 
       if (searchEnabled) {
-        // --- Tool-calling path ---
-        // First response is non-streaming; check for tool_calls before streaming final reply.
-        const firstJson = await response.json() as any;
+        // --- Tool-calling path (multi-turn agentic loop) ---
+        // Each iteration: non-streaming model call, process any tool_calls, append to history.
+        // Loop terminates when model emits no more tool_calls OR we hit MAX_TOOL_ITERATIONS.
+        // On natural termination, write the final content as a single SSE chunk.
+        // On forced termination (max reached with tool calls still pending), do one final
+        // streaming pass with tool_choice='none' to force an answer.
         const isOllamaNative = fullUrl.endsWith('/api/chat');
 
-        const toolCalls = firstJson.choices?.[0]?.message?.tool_calls
-          || firstJson.message?.tool_calls;
-
-        if (toolCalls?.length && toolCalls[0].function?.name === 'web_search') {
-          const rawArgs = toolCalls[0].function.arguments;
-          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
-          const query: string = args.query || '';
-          log.info({ query, userId: req.userId }, 'web_search tool call — querying SearXNG');
-
-          // Notify the client that a search is in progress
-          res.write(JSON.stringify({ searching: true, query }) + '\n');
-
-          const { text: searchResults, sources } = await runSearxngSearch(searxngUrl, query);
-
-          // Send structured sources to client for display
-          if (sources.length > 0) {
-            res.write(JSON.stringify({ sources }) + '\n');
-          }
-
-          // Build messages for the follow-up streaming request
-          const assistantToolMsg = isOllamaNative
-            ? { role: 'assistant', content: '', tool_calls: toolCalls }
-            : { role: 'assistant', content: null, tool_calls: toolCalls };
-
-          const toolResultMsg = isOllamaNative
-            ? { role: 'tool', content: searchResults }
-            : { role: 'tool', tool_call_id: toolCalls[0].id || 'search_0', content: searchResults };
-
-          // Re-build messages with tool exchange appended
-          const followUpMessages = [...messages.map((m: any) => {
-            const isOllamaNativeUrl = fullUrl.endsWith('/api/chat');
-            let content = m.content || '';
-            const msg: any = { role: m.role, content };
-            if (m.attachments?.length > 0) {
-              const images = m.attachments.filter((a: any) => a.type.startsWith('image/')).map((a: any) =>
-                a.content?.includes(',') ? a.content.split(',')[1] : a.content
-              );
-              if (images.length > 0) {
-                if (isOllamaNativeUrl) {
-                  msg.images = images;
-                } else if (m.role === 'user') {
-                  msg.content = [
-                    { type: 'text', text: m.content || '' },
-                    ...images.map((img: string) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } }))
-                  ];
-                }
+        // Build a message shape that mirrors the initial POST (handles image attachments).
+        const toProviderMsg = (m: any): any => {
+          const msg: any = { role: m.role, content: m.content || '' };
+          if (m.attachments?.length > 0) {
+            const images = m.attachments
+              .filter((a: any) => a.type.startsWith('image/'))
+              .map((a: any) => a.content?.includes(',') ? a.content.split(',')[1] : a.content);
+            if (images.length > 0) {
+              if (isOllamaNative) {
+                msg.images = images;
+                msg.content = m.content || 'Analyze this image';
+              } else if (m.role === 'user') {
+                msg.content = [
+                  { type: 'text', text: m.content || 'Analyze this image' },
+                  ...images.map((img: string) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } }))
+                ];
               }
             }
-            return msg;
-          }), assistantToolMsg, toolResultMsg];
+          }
+          return msg;
+        };
 
-          // Make the follow-up streaming request
-          const followUpController = new AbortController();
-          const followUpTimeout = setTimeout(() => followUpController.abort(), 90000);
-          const followUpRes = await fetch(fullUrl, {
+        const workingMessages: any[] = messages.map(toProviderMsg);
+        const accumulatedSources: SearchSource[] = [];
+
+        let currentResponse: any = response;
+        let iteration = 0;
+        let finalStreamed = false;
+
+        while (iteration < MAX_TOOL_ITERATIONS) {
+          const json = await currentResponse.json() as any;
+          const assistantMsg = json.choices?.[0]?.message || json.message;
+          const toolCalls = assistantMsg?.tool_calls;
+
+          if (!toolCalls?.length) {
+            // No tool calls — this is the final answer. Write it out as one SSE chunk.
+            const content = assistantMsg?.content || '';
+            if (content) res.write(JSON.stringify({ message: { content } }) + '\n');
+            if (json.usage) res.write(JSON.stringify({ usage: json.usage }) + '\n');
+            break;
+          }
+
+          // Append the assistant tool-call message to history
+          const assistantToolMsg = isOllamaNative
+            ? { role: 'assistant', content: assistantMsg.content || '', tool_calls: toolCalls }
+            : { role: 'assistant', content: assistantMsg.content ?? null, tool_calls: toolCalls };
+          workingMessages.push(assistantToolMsg);
+
+          // Process every tool call in this batch
+          for (let i = 0; i < toolCalls.length; i++) {
+            const tc = toolCalls[i];
+            const name = tc.function?.name;
+            const rawArgs = tc.function?.arguments;
+            let args: any = {};
+            if (typeof rawArgs === 'string') {
+              try { args = JSON.parse(rawArgs); } catch { args = {}; }
+            } else if (rawArgs && typeof rawArgs === 'object') {
+              args = rawArgs;
+            }
+
+            let toolText = '';
+            if (name === 'web_search') {
+              const query: string = args.query || '';
+              log.info({ query, userId: req.userId, iteration }, 'web_search tool call');
+              res.write(JSON.stringify({ searching: true, query }) + '\n');
+              const result = await runSearxngSearch(searxngUrl, query);
+              toolText = result.text;
+              accumulatedSources.push(...result.sources);
+              if (accumulatedSources.length) {
+                res.write(JSON.stringify({ sources: accumulatedSources }) + '\n');
+              }
+            } else if (name === 'fetch_url') {
+              const target: string = args.url || '';
+              let host = target;
+              try { host = new URL(target).hostname; } catch { /* malformed — let the helper return its error */ }
+              log.info({ url: target, userId: req.userId, iteration }, 'fetch_url tool call');
+              res.write(JSON.stringify({ fetching: true, url: target, host }) + '\n');
+              const result = await fetchUrlAndStrip(target);
+              toolText = result.text;
+              accumulatedSources.push(result.source);
+              res.write(JSON.stringify({ sources: accumulatedSources }) + '\n');
+            } else {
+              toolText = `Unknown tool: ${name}`;
+              log.warn({ name, userId: req.userId }, 'Unknown tool call requested');
+            }
+
+            const toolResultMsg = isOllamaNative
+              ? { role: 'tool', content: toolText }
+              : { role: 'tool', tool_call_id: tc.id || `tool_${iteration}_${i}`, content: toolText };
+            workingMessages.push(toolResultMsg);
+          }
+
+          iteration++;
+          const isFinalIteration = iteration >= MAX_TOOL_ITERATIONS;
+
+          // Issue the next request. On the final iteration, stream and disable tools to
+          // force the model to produce a final answer.
+          const nextController = new AbortController();
+          const nextTimeout = setTimeout(() => nextController.abort(), attemptTimeoutMs);
+          const nextRes = await fetch(fullUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({
               model: decision.model,
-              messages: followUpMessages,
-              stream: true,
-              stream_options: { include_usage: true },
-              ...(showThinkingEnabled && isOllamaNative ? { think: true } : {}),
+              messages: workingMessages,
+              stream: isFinalIteration,
+              ...(localThinkingEnabled && isOllamaNative ? { think: true } : {}),
+              ...(isFinalIteration
+                ? { stream_options: { include_usage: true } }
+                : { tools: toolList, tool_choice: 'auto' }),
             }),
-            signal: followUpController.signal,
+            signal: nextController.signal,
           });
-          clearTimeout(followUpTimeout);
+          clearTimeout(nextTimeout);
 
-          if (!followUpRes.ok || !followUpRes.body) {
-            throw new Error(`Search follow-up request failed: ${followUpRes.status}`);
+          if (!nextRes.ok || !nextRes.body) {
+            throw new Error(`Tool follow-up request failed: ${nextRes.status}`);
           }
 
-          const reader = followUpRes.body.getReader();
-          req.on('close', () => { reader.cancel().catch(() => {}); });
-          await streamSseToResponse(reader, res, showThinkingEnabled && isOllamaNative);
-        } else {
-          // Model responded without using the tool — write content directly as SSE
-          const content = firstJson.choices?.[0]?.message?.content || firstJson.message?.content || '';
-          if (content) res.write(JSON.stringify({ message: { content } }) + '\n');
+          if (isFinalIteration) {
+            const reader = nextRes.body.getReader();
+            req.on('close', () => { reader.cancel().catch(() => {}); });
+            await streamSseToResponse(reader, res, localThinkingEnabled && isOllamaNative);
+            finalStreamed = true;
+            break;
+          }
+
+          currentResponse = nextRes;
+        }
+
+        if (!finalStreamed) {
+          log.info({ iterations: iteration, sourcesCount: accumulatedSources.length }, 'Tool loop completed');
         }
       } else {
         // --- Normal streaming path ---

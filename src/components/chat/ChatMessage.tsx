@@ -124,6 +124,12 @@ export default function ChatMessage({ msg, showThinkingEnabled = true }: ChatMes
               Web Search: {msg.webSearchQuery}
             </div>
           )}
+          {msg.webFetchUrl && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[9px] font-bold text-blue-400 uppercase tracking-wider">
+              <Globe className="w-3 h-3" />
+              Fetched: {msg.webFetchHost || msg.webFetchUrl}
+            </div>
+          )}
         </div>
 
         {thinking && (

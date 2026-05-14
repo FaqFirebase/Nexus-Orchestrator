@@ -294,6 +294,16 @@ export function useChat(deps: UseChatDeps) {
                 continue;
               }
 
+              if (json.fetching) {
+                setRoutingStep('searching');
+                setMessages(msgs =>
+                  msgs.map(m =>
+                    m.id === assistantMsg.id ? { ...m, webFetchUrl: json.url, webFetchHost: json.host } : m
+                  )
+                );
+                continue;
+              }
+
               if (json.sources) {
                 setMessages(msgs =>
                   msgs.map(m =>

@@ -58,6 +58,8 @@ export interface Message {
   };
   webSearchQuery?: string;
   webSearchSources?: SearchSource[];
+  webFetchUrl?: string;
+  webFetchHost?: string;
 }
 
 export interface Conversation {

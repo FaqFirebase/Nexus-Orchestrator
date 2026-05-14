@@ -12,7 +12,7 @@ Run Nexus Orchestrator on Unraid using Docker. This guide covers installation, c
 - [First Run](#first-run)
 - [First-Time Setup](#first-time-setup)
 - [Using the App](#using-the-app)
-  - [Web Search (SearXNG)](#web-search-searxng)
+  - [Web Search & URL Fetch (SearXNG)](#web-search--url-fetch-searxng)
 - [Remote Access](#remote-access)
 - [Troubleshooting](#troubleshooting)
 
@@ -199,34 +199,54 @@ Organize conversations into named project folders:
 5. Double-click a project name to rename it
 6. Click the trash icon on a project to delete it — you can choose to keep the chats (they move to unassigned) or delete them all
 
-### Web Search (SearXNG)
+### Web Search & URL Fetch (SearXNG)
 
-Nexus can give LLMs real-time web search capability using a self-hosted [SearXNG](https://github.com/searxng/searxng) instance. The LLM uses tool calling to decide when to search — it won't search on every message, only when it determines it needs current information.
+Nexus can give LLMs real-time web access through two tools, both gated by your SearXNG configuration:
 
-> **Requires a model that supports tool calling.** Recommended Ollama models: `llama3.1`, `llama3.2`, `qwen2.5`, `mistral-nemo`. Models like `deepseek-coder` do not support tool calling and will ignore the tool.
+- **`web_search`** — queries a self-hosted [SearXNG](https://github.com/searxng/searxng) instance for current information.
+- **`fetch_url`** — fetches a specific page's content as plain text so the model can read it directly.
+
+The LLM decides when to use them and can chain them — for example, search the web, pick the most relevant result, then fetch its full content before answering. Nexus caps tool use at **4 calls per chat turn** to keep latency bounded.
+
+> **Requires a model that supports tool calling.** Recommended Ollama models: `llama3.1`, `llama3.2`, `qwen2.5`, `mistral-nemo`. Models like `deepseek-coder` do not support tool calling and will ignore both tools.
 
 **Setup:**
 
-1. Run SearXNG on your network (separate Docker container — see the SearXNG docs)
+1. Run SearXNG on your network (separate Docker container — see the SearXNG docs). Even if you only plan to use `fetch_url`, SearXNG must be configured — the globe toggle gates both tools together.
 2. In Nexus, go to **Models** tab → **Web Search (SearXNG)** section
 3. Enter your SearXNG URL (e.g. `http://192.168.1.50:8080`)
 4. Click **Save Search Settings**
 
-**Using web search:**
+**Using the tools:**
 
-- **Per-chat:** Click the 🌐 globe icon in the chat input bar to enable search for that message. The icon lights up blue when active.
-- **Always On:** Toggle **Always On** in the Web Search config section — the search tool is included in every request automatically.
+- **Per-chat:** Click the 🌐 globe icon in the chat input bar to enable both tools for that message. The icon lights up blue when active.
+- **Always On:** Toggle **Always On** in the Web Search config section — both tools are included in every request automatically.
 
-**What triggers a search:**
+**What triggers each tool:**
 
-Prompts asking for current or recent information work best:
-- *"What's the latest news on X?"*
-- *"Search the web for the newest version of Y"*
-- *"What happened with Z today?"*
+| Prompt example | Likely behavior |
+| --- | --- |
+| *"What's the latest news on X?"* | `web_search` only |
+| *"Search the web for the newest version of Y"* | `web_search` only |
+| *"Summarize https://example.com/changelog"* | `fetch_url` directly |
+| *"What's new in React 19?"* | `web_search`, then `fetch_url` on a result |
+| *"Compare the pricing on \<url1\> and \<url2\>"* | `fetch_url` twice |
 
-When a search fires, the routing status shows **> Searching the Web...** with a blue globe indicator. The completed message shows a **Web Search: \<query\>** badge showing exactly what was searched. Below the response a **Sources (N)** toggle appears — click it to expand a list of the SearXNG results used, each showing the title (as a link), URL, and snippet.
+**Indicators:**
 
-**FAST category** always skips the search tool regardless of settings.
+- Mid-response: routing status shows **> Searching the Web...** with a blue globe.
+- Completed messages show **Web Search: \<query\>** and/or **Fetched: \<host\>** badges, one per tool call.
+- A **Sources (N)** toggle appears below the response — click to expand. Lists every search result and fetched page used, in the order the model used them. Each entry shows title (as a link), URL, and snippet.
+
+**Fetch behavior:**
+
+- HTML is stripped to plain text — scripts, styles, comments, and noscript blocks are removed; common entities (`&amp;`, `&#65;`, etc.) are decoded.
+- Content capped at **50 KB** (≈12k tokens). Longer pages get a `...[content truncated]` marker so the model knows it didn't see everything.
+- 15-second per-fetch timeout.
+- Non-text content types (PDF, images, binary) are politely reported back to the model so it can recover and try a different URL.
+- **SSRF-protected**: cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`, etc.) and non-http(s) schemes are blocked. RFC-1918 LAN addresses (`192.168.x`, `10.x`, `172.x`) are allowed so you can fetch local docs.
+
+**FAST category** always skips both tools regardless of settings.
 
 ---
 
