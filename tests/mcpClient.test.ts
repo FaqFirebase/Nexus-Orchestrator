@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   MCP_CACHE_TTL_MS,
   MCP_TOOL_NAME_SEP,
@@ -10,7 +10,12 @@ import {
   prefixToolName,
   unprefixToolName,
   validateMcpServer,
+  getCachedTools,
+  setCachedTools,
+  invalidateMcpCache,
+  _resetCacheForTests,
   type McpServer,
+  type McpToolDef,
 } from '../mcpClient.js';
 
 describe('mcpClient constants', () => {
@@ -103,5 +108,58 @@ describe('validateMcpServer', () => {
   it('rejects header names with invalid chars', () => {
     expect(validateMcpServer(makeServer({ headers: { 'X Foo': 'bar' } }))).toMatchObject({ ok: false });
     expect(validateMcpServer(makeServer({ headers: { 'X:Foo': 'bar' } }))).toMatchObject({ ok: false });
+  });
+});
+
+describe('mcp cache', () => {
+  beforeEach(() => _resetCacheForTests());
+
+  const tools: McpToolDef[] = [{ name: 'github__read_file', description: 'd', inputSchema: {} }];
+
+  it('returns undefined when nothing cached', () => {
+    expect(getCachedTools('u1', 's1')).toBeUndefined();
+  });
+
+  it('returns set value within TTL', () => {
+    setCachedTools('u1', 's1', { tools, fetchedAt: Date.now(), healthy: true });
+    const cached = getCachedTools('u1', 's1');
+    expect(cached?.tools).toEqual(tools);
+    expect(cached?.healthy).toBe(true);
+  });
+
+  it('returns undefined past TTL', () => {
+    setCachedTools('u1', 's1', { tools, fetchedAt: Date.now() - (MCP_CACHE_TTL_MS + 1), healthy: true });
+    expect(getCachedTools('u1', 's1')).toBeUndefined();
+  });
+
+  it('still returns unhealthy entries within TTL', () => {
+    setCachedTools('u1', 's1', { tools: [], fetchedAt: Date.now(), healthy: false });
+    const cached = getCachedTools('u1', 's1');
+    expect(cached?.healthy).toBe(false);
+  });
+
+  it('invalidateMcpCache(userId, serverId) is targeted', () => {
+    setCachedTools('u1', 's1', { tools, fetchedAt: Date.now(), healthy: true });
+    setCachedTools('u1', 's2', { tools, fetchedAt: Date.now(), healthy: true });
+    invalidateMcpCache('u1', 's1');
+    expect(getCachedTools('u1', 's1')).toBeUndefined();
+    expect(getCachedTools('u1', 's2')).toBeDefined();
+  });
+
+  it('invalidateMcpCache(userId) clears all entries for that user', () => {
+    setCachedTools('u1', 's1', { tools, fetchedAt: Date.now(), healthy: true });
+    setCachedTools('u1', 's2', { tools, fetchedAt: Date.now(), healthy: true });
+    setCachedTools('u2', 's1', { tools, fetchedAt: Date.now(), healthy: true });
+    invalidateMcpCache('u1');
+    expect(getCachedTools('u1', 's1')).toBeUndefined();
+    expect(getCachedTools('u1', 's2')).toBeUndefined();
+    expect(getCachedTools('u2', 's1')).toBeDefined();
+  });
+
+  it('isolates the same serverId between users', () => {
+    setCachedTools('u1', 's1', { tools: [{ name: 'a__b', description: 'A', inputSchema: {} }], fetchedAt: Date.now(), healthy: true });
+    setCachedTools('u2', 's1', { tools: [{ name: 'x__y', description: 'X', inputSchema: {} }], fetchedAt: Date.now(), healthy: true });
+    expect(getCachedTools('u1', 's1')?.tools[0].name).toBe('a__b');
+    expect(getCachedTools('u2', 's1')?.tools[0].name).toBe('x__y');
   });
 });

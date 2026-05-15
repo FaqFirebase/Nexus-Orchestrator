@@ -98,3 +98,52 @@ export function validateMcpServer(s: McpServer): ValidationResult {
 
   return { ok: true };
 }
+
+export interface McpToolDef {
+  name: string;            // fully prefixed: '<serverName>__<toolName>'
+  description: string;
+  inputSchema: object;
+}
+
+export interface CachedTools {
+  tools: McpToolDef[];
+  fetchedAt: number;
+  healthy: boolean;
+}
+
+// Module-scope cache. Process-local, lost on restart (matches existing router cache).
+const cache = new Map<string, Map<string, CachedTools>>();
+
+export function getCachedTools(userId: string, serverId: string): CachedTools | undefined {
+  const userMap = cache.get(userId);
+  if (!userMap) return undefined;
+  const entry = userMap.get(serverId);
+  if (!entry) return undefined;
+  if (Date.now() - entry.fetchedAt > MCP_CACHE_TTL_MS) {
+    userMap.delete(serverId);
+    return undefined;
+  }
+  return entry;
+}
+
+export function setCachedTools(userId: string, serverId: string, entry: CachedTools): void {
+  let userMap = cache.get(userId);
+  if (!userMap) {
+    userMap = new Map();
+    cache.set(userId, userMap);
+  }
+  userMap.set(serverId, entry);
+}
+
+export function invalidateMcpCache(userId: string, serverId?: string): void {
+  if (serverId == null) {
+    cache.delete(userId);
+    return;
+  }
+  cache.get(userId)?.delete(serverId);
+}
+
+// Test-only — never call from production code paths.
+export function _resetCacheForTests(): void {
+  cache.clear();
+}
