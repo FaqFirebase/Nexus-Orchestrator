@@ -3,6 +3,12 @@
 // Kept as a standalone module so pure helpers and cache logic are unit-testable
 // without importing server.ts (which boots the HTTP server on load).
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import logger from './logger.js';
+
+const log = logger.child({ module: 'mcpClient' });
+
 export const MCP_CACHE_TTL_MS = 5 * 60 * 1000;
 export const MCP_TOOL_NAME_SEP = '__';
 export const MCP_SERVER_NAME_RE = /^[a-z0-9_-]{1,32}$/;
@@ -170,4 +176,158 @@ export function classifyMcpError(err: unknown): McpErrorKind {
   }
 
   return 'unknown';
+}
+
+function buildHeaders(server: McpServer): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (server.bearer) headers['Authorization'] = `Bearer ${server.bearer}`;
+  if (server.headers) {
+    for (const [name, value] of Object.entries(server.headers)) {
+      headers[name] = value;
+    }
+  }
+  return headers;
+}
+
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        controller.signal.addEventListener('abort', () => {
+          const e: any = new Error('MCP request timed out');
+          e.name = 'AbortError';
+          reject(e);
+        });
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface ListMcpToolsResult {
+  tools: McpToolDef[];
+  healthy: boolean;
+  errorKind?: McpErrorKind;
+}
+
+export async function listMcpTools(userId: string, server: McpServer): Promise<ListMcpToolsResult> {
+  const validation = validateMcpServer(server);
+  if (!validation.ok) {
+    setCachedTools(userId, server.id, { tools: [], fetchedAt: Date.now(), healthy: false });
+    return { tools: [], healthy: false, errorKind: 'unknown' };
+  }
+
+  const client = new Client({ name: 'nexus-orchestrator', version: '1.3.0' });
+  const transport = new StreamableHTTPClientTransport(new URL(server.url), {
+    requestInit: { headers: buildHeaders(server) },
+  });
+
+  try {
+    await withTimeout(client.connect(transport), MCP_LIST_TIMEOUT_MS);
+
+    const collected: McpToolDef[] = [];
+    let cursor: string | undefined = undefined;
+    do {
+      const page: any = await withTimeout(client.listTools(cursor ? { cursor } : {}), MCP_LIST_TIMEOUT_MS);
+      for (const t of page.tools || []) {
+        collected.push({
+          name: prefixToolName(server.name, t.name),
+          description: t.description ?? '',
+          inputSchema: t.inputSchema ?? { type: 'object', properties: {} },
+        });
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    setCachedTools(userId, server.id, { tools: collected, fetchedAt: Date.now(), healthy: true });
+    log.info({ userId, serverId: server.id, serverName: server.name, toolCount: collected.length }, 'MCP tools listed');
+    return { tools: collected, healthy: true };
+  } catch (err) {
+    const errorKind = classifyMcpError(err);
+    setCachedTools(userId, server.id, { tools: [], fetchedAt: Date.now(), healthy: false });
+    log.warn({ userId, serverId: server.id, serverName: server.name, errorKind, err: (err as Error)?.message }, 'MCP listTools failed');
+    return { tools: [], healthy: false, errorKind };
+  } finally {
+    try { await client.close(); } catch { /* best-effort */ }
+  }
+}
+
+export interface CallMcpToolResult {
+  content: string;
+  isError: boolean;
+  errorKind?: McpErrorKind;
+  durationMs: number;
+}
+
+export async function callMcpTool(
+  server: McpServer,
+  prefixedToolName: string,
+  args: unknown
+): Promise<CallMcpToolResult> {
+  const started = Date.now();
+  const unprefixed = unprefixToolName(prefixedToolName);
+  if (!unprefixed || unprefixed.serverName !== server.name) {
+    return {
+      content: `Error: tool ${prefixedToolName} is not available on server ${server.name}.`,
+      isError: true,
+      errorKind: 'not_found',
+      durationMs: Date.now() - started,
+    };
+  }
+
+  const client = new Client({ name: 'nexus-orchestrator', version: '1.3.0' });
+  const transport = new StreamableHTTPClientTransport(new URL(server.url), {
+    requestInit: { headers: buildHeaders(server) },
+  });
+
+  try {
+    await withTimeout(client.connect(transport), MCP_TOOL_TIMEOUT_MS);
+    const result: any = await withTimeout(
+      client.callTool({ name: unprefixed.toolName, arguments: (args && typeof args === 'object') ? args as Record<string, unknown> : {} }),
+      MCP_TOOL_TIMEOUT_MS
+    );
+
+    const blocks = Array.isArray(result?.content) ? result.content : [];
+    const text = blocks
+      .filter((b: any) => b?.type === 'text')
+      .map((b: any) => String(b.text || ''))
+      .join('\n');
+    const content = text || (result?.structuredContent ? JSON.stringify(result.structuredContent) : '');
+
+    if (result?.isError) {
+      return { content: content || 'Tool returned an error.', isError: true, errorKind: 'tool', durationMs: Date.now() - started };
+    }
+    return { content, isError: false, durationMs: Date.now() - started };
+  } catch (err) {
+    const errorKind = classifyMcpError(err);
+    const messageByKind: Record<McpErrorKind, string> = {
+      auth: `Error: MCP server ${server.name} authentication failed. Check the bearer token in System tab.`,
+      protocol: `Error: MCP server ${server.name} unreachable.`,
+      not_found: `Error: tool ${prefixedToolName} is no longer available. The server's tool list has been refreshed.`,
+      tool: 'Error: MCP tool call failed.',
+      unknown: 'Error: MCP tool call failed.',
+    };
+    log.warn({ serverId: server.id, serverName: server.name, toolName: unprefixed.toolName, errorKind, err: (err as Error)?.message }, 'MCP callTool failed');
+    return { content: messageByKind[errorKind], isError: true, errorKind, durationMs: Date.now() - started };
+  } finally {
+    try { await client.close(); } catch { /* best-effort */ }
+  }
+}
+
+export async function getMcpToolList(userId: string, servers: McpServer[]): Promise<McpToolDef[]> {
+  const enabled = servers.filter(s => s.enabled);
+  if (enabled.length === 0) return [];
+
+  const results = await Promise.all(enabled.map(async (server) => {
+    const cached = getCachedTools(userId, server.id);
+    if (cached) return cached.tools;
+    const fresh = await listMcpTools(userId, server);
+    return fresh.tools;
+  }));
+
+  return results.flat();
 }
