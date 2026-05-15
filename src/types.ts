@@ -34,6 +34,27 @@ export interface SearchSource {
   snippet: string;
 }
 
+export interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  bearer?: string;
+  headers?: Record<string, string>;
+  enabled: boolean;
+}
+
+export type McpErrorKind = 'tool' | 'protocol' | 'auth' | 'not_found' | 'unknown';
+
+export interface McpToolCall {
+  serverId: string;
+  serverName: string;
+  toolName: string;
+  args?: unknown;
+  isError?: boolean;
+  errorKind?: McpErrorKind;
+  durationMs?: number;
+}
+
 export interface Attachment {
   id: string;
   name: string;
@@ -60,6 +81,7 @@ export interface Message {
   webSearchSources?: SearchSource[];
   webFetchUrl?: string;
   webFetchHost?: string;
+  mcpToolCalls?: McpToolCall[];
 }
 
 export interface Conversation {
@@ -98,6 +120,7 @@ export interface NexusConfig {
     url: string;
     alwaysOn: boolean;
   };
+  mcpServers?: McpServer[];
 }
 
 export interface User {
