@@ -33,3 +33,68 @@ export function unprefixToolName(prefixed: string): { serverName: string; toolNa
   if (!serverName || !toolName) return null;
   return { serverName, toolName };
 }
+
+export interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  bearer?: string;
+  headers?: Record<string, string>;
+  enabled: boolean;
+}
+
+const METADATA_HOSTS = new Set([
+  '169.254.169.254',
+  'metadata.google.internal',
+  'metadata.internal',
+  'kubernetes.default.svc',
+]);
+
+export type ValidationResult = { ok: true } | { ok: false; reason: string };
+
+export function validateMcpServer(s: McpServer): ValidationResult {
+  if (!MCP_SERVER_NAME_RE.test(s.name) || s.name.includes(MCP_TOOL_NAME_SEP)) {
+    return { ok: false, reason: 'invalid_name' };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(s.url);
+  } catch {
+    return { ok: false, reason: 'invalid_url' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, reason: 'invalid_scheme' };
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (METADATA_HOSTS.has(host)) {
+    return { ok: false, reason: 'metadata_endpoint_blocked' };
+  }
+  if (host === '::1' || host === '[::1]') {
+    return { ok: false, reason: 'loopback_blocked' };
+  }
+
+  if (s.bearer != null && s.bearer.length > MCP_BEARER_MAX_LEN) {
+    return { ok: false, reason: 'bearer_too_long' };
+  }
+
+  if (s.headers) {
+    for (const [name, value] of Object.entries(s.headers)) {
+      if (!MCP_HEADER_NAME_RE.test(name)) {
+        return { ok: false, reason: `invalid_header_name:${name}` };
+      }
+      if (MCP_HEADER_NAME_BLOCKLIST.includes(name.toLowerCase())) {
+        return { ok: false, reason: `blocked_header_name:${name}` };
+      }
+      if (typeof value !== 'string' || /[\r\n]/.test(value)) {
+        return { ok: false, reason: `invalid_header_value:${name}` };
+      }
+      for (let i = 0; i < value.length; i++) {
+        const c = value.charCodeAt(i);
+        if (c < 32 || c > 126) return { ok: false, reason: `invalid_header_value:${name}` };
+      }
+    }
+  }
+
+  return { ok: true };
+}

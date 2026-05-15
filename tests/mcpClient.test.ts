@@ -9,6 +9,8 @@ import {
   MCP_MAX_SERVERS_PER_USER,
   prefixToolName,
   unprefixToolName,
+  validateMcpServer,
+  type McpServer,
 } from '../mcpClient.js';
 
 describe('mcpClient constants', () => {
@@ -44,5 +46,62 @@ describe('prefixToolName / unprefixToolName', () => {
     expect(unprefixToolName('')).toBeNull();
     expect(unprefixToolName('__missingServer')).toBeNull();
     expect(unprefixToolName('missingTool__')).toBeNull();
+  });
+});
+
+function makeServer(over: Partial<McpServer> = {}): McpServer {
+  return {
+    id: 'srv-1',
+    name: 'good',
+    url: 'https://mcp.example.com/mcp',
+    enabled: true,
+    ...over,
+  };
+}
+
+describe('validateMcpServer', () => {
+  it('accepts a valid server', () => {
+    expect(validateMcpServer(makeServer())).toEqual({ ok: true });
+  });
+
+  it('rejects empty name', () => {
+    expect(validateMcpServer(makeServer({ name: '' }))).toMatchObject({ ok: false });
+  });
+
+  it('rejects uppercase / overlong / separator-containing name', () => {
+    expect(validateMcpServer(makeServer({ name: 'Bad' }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ name: 'a'.repeat(33) }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ name: 'has__sep' }))).toMatchObject({ ok: false });
+  });
+
+  it('rejects non-http(s) URL', () => {
+    expect(validateMcpServer(makeServer({ url: 'ftp://x/y' }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ url: 'file:///etc/passwd' }))).toMatchObject({ ok: false });
+  });
+
+  it('rejects cloud metadata endpoints', () => {
+    expect(validateMcpServer(makeServer({ url: 'http://169.254.169.254/latest/meta-data' }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ url: 'http://metadata.google.internal' }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ url: 'http://metadata.internal' }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ url: 'http://kubernetes.default.svc' }))).toMatchObject({ ok: false });
+  });
+
+  it('rejects IPv6 loopback', () => {
+    expect(validateMcpServer(makeServer({ url: 'http://[::1]/mcp' }))).toMatchObject({ ok: false });
+  });
+
+  it('rejects blocklisted custom header names (case-insensitive)', () => {
+    expect(validateMcpServer(makeServer({ headers: { Host: 'evil.example.com' } }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ headers: { cookie: 'a=b' } }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ headers: { authorization: 'Bearer x' } }))).toMatchObject({ ok: false });
+  });
+
+  it('rejects CR/LF in header values', () => {
+    expect(validateMcpServer(makeServer({ headers: { 'X-Foo': 'bar\r\nInjected: yes' } }))).toMatchObject({ ok: false });
+  });
+
+  it('rejects header names with invalid chars', () => {
+    expect(validateMcpServer(makeServer({ headers: { 'X Foo': 'bar' } }))).toMatchObject({ ok: false });
+    expect(validateMcpServer(makeServer({ headers: { 'X:Foo': 'bar' } }))).toMatchObject({ ok: false });
   });
 });
