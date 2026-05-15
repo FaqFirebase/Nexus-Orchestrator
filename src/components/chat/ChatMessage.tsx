@@ -130,6 +130,11 @@ export default function ChatMessage({ msg, showThinkingEnabled = true }: ChatMes
               Fetched: {msg.webFetchHost || msg.webFetchUrl}
             </div>
           )}
+          {msg.mcpToolCalls?.some(c => c.errorKind === 'protocol' || c.errorKind === 'auth' || c.errorKind === 'unknown') && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-[9px] font-bold text-red-400 uppercase tracking-wider">
+              MCP error: {msg.mcpToolCalls?.find(c => c.errorKind === 'protocol' || c.errorKind === 'auth' || c.errorKind === 'unknown')?.serverName}
+            </div>
+          )}
         </div>
 
         {thinking && (
@@ -237,19 +242,19 @@ export default function ChatMessage({ msg, showThinkingEnabled = true }: ChatMes
           </div>
         )}
 
-        {msg.webSearchSources && msg.webSearchSources.length > 0 && (
+        {(msg.webSearchSources?.length || msg.mcpToolCalls?.length) ? (
           <div className="mt-2">
             <button
               onClick={() => setSourcesOpen(prev => !prev)}
               className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors"
             >
               {sourcesOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              Sources ({msg.webSearchSources.length})
+              Sources ({(msg.webSearchSources?.length || 0) + (msg.mcpToolCalls?.length || 0)})
             </button>
             {sourcesOpen && (
               <div className="mt-2 space-y-2 pl-1 border-l-2 border-blue-500/20">
-                {msg.webSearchSources.map((source, i) => (
-                  <div key={i} className="flex flex-col gap-0.5 px-3 py-2 rounded bg-zinc-900/50 border border-zinc-800">
+                {msg.webSearchSources?.map((source, i) => (
+                  <div key={`src-${i}`} className="flex flex-col gap-0.5 px-3 py-2 rounded bg-zinc-900/50 border border-zinc-800">
                     <div className="flex items-start gap-1.5">
                       <ExternalLink className="w-3 h-3 mt-0.5 shrink-0 text-blue-400" />
                       <a
@@ -267,10 +272,25 @@ export default function ChatMessage({ msg, showThinkingEnabled = true }: ChatMes
                     )}
                   </div>
                 ))}
+                {msg.mcpToolCalls?.map((tc, i) => {
+                  const errorBorder = tc.isError || tc.errorKind ? 'border-red-500/40' : 'border-zinc-800';
+                  return (
+                    <div key={`mcp-${i}`} className={`flex flex-col gap-0.5 px-3 py-2 rounded bg-zinc-900/50 border ${errorBorder}`}>
+                      <div className="text-[11px] font-semibold text-zinc-200">
+                        [{tc.serverName}] {tc.toolName}
+                      </div>
+                      {tc.args && typeof tc.args === 'object' && Object.keys(tc.args as object).length > 0 && (
+                        <pre className="text-[10px] text-zinc-500 mt-1 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(tc.args, null, 2)}</pre>
+                      )}
+                      {tc.errorKind && <div className="text-[10px] text-red-400 mt-1">Error: {tc.errorKind}</div>}
+                      {typeof tc.durationMs === 'number' && <div className="text-[10px] text-zinc-600 mt-0.5">{tc.durationMs} ms</div>}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
         {msg.decision && <RoutingAnalysis decision={msg.decision} usage={msg.usage} />}
       </div>
