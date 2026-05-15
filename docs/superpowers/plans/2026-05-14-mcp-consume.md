@@ -6,7 +6,7 @@
 
 **Architecture:** New standalone module `mcpClient.ts` encapsulates SDK setup, per-user in-memory cache (5-min TTL), tool listing, tool dispatch, and error classification. `server.ts handleChat` calls `getMcpToolList()` to append MCP tools to the existing `toolList`; a fourth branch in the agentic-loop dispatch routes tool calls whose name contains `__` to `callMcpTool()`. Frontend adds a Models-tab section for per-user server config plus a Sources-panel extension showing MCP tool calls.
 
-**Tech Stack:** TypeScript 5.8, Express 4, Vitest, React 19, Vite 6, `@modelcontextprotocol/client` (new SDK dependency, ~1-2 MB), Zod, Pino, AES-256-GCM (existing).
+**Tech Stack:** TypeScript 5.8, Express 4, Vitest, React 19, Vite 6, `@modelcontextprotocol/sdk` (new SDK dependency, ~1-2 MB), Zod, Pino, AES-256-GCM (existing).
 
 **Spec:** `docs/superpowers/specs/2026-05-14-mcp-consume-design.md` — read this first.
 
@@ -16,7 +16,7 @@
 
 | File | Action | Responsibility |
 |---|---|---|
-| `package.json` | modify | Add `@modelcontextprotocol/client` to `dependencies` |
+| `package.json` | modify | Add `@modelcontextprotocol/sdk` to `dependencies` |
 | `mcpClient.ts` | create | Constants, types, pure helpers, cache, list/call functions, error mapping |
 | `validation.ts` | modify | Add `mcpServerSchema` and extend `configSchema` with `mcpServers` |
 | `logger.ts` | modify | Add Pino redact rules |
@@ -43,7 +43,7 @@
 Run from repo root:
 
 ```bash
-npm install @modelcontextprotocol/client
+npm install @modelcontextprotocol/sdk
 ```
 
 - [ ] **Step 2: Verify install + lockfile updated**
@@ -51,7 +51,7 @@ npm install @modelcontextprotocol/client
 Run:
 
 ```bash
-node -e "const m = require('@modelcontextprotocol/client'); console.log(Object.keys(m).slice(0,5));"
+node --input-type=module -e "import('@modelcontextprotocol/sdk/client/index.js').then(m => console.log(Object.keys(m)))"
 ```
 
 Expected: prints an array containing at least `Client` and `StreamableHTTPClientTransport`.
@@ -78,7 +78,7 @@ Expected: `found 0 vulnerabilities`.
 
 ```bash
 git add package.json package-lock.json
-git commit -m "chore(deps): add @modelcontextprotocol/client SDK"
+git commit -m "chore(deps): add @modelcontextprotocol/sdk SDK"
 ```
 
 ---
@@ -635,8 +635,8 @@ git commit -m "feat(mcp): classify SDK errors into auth/protocol/not_found/unkno
 Insert at the top of `mcpClient.ts` (above the existing constants):
 
 ```ts
-import { Client } from '@modelcontextprotocol/client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import logger from './logger.js';
 
 const log = logger.child({ module: 'mcpClient' });
@@ -823,14 +823,7 @@ export async function getMcpToolList(userId: string, servers: McpServer[]): Prom
 
 Run: `npx tsc --noEmit`
 
-Expected: zero errors. If the SDK's actual exports differ from `@modelcontextprotocol/client` direct (e.g. transport must be imported from a subpath), adjust the imports until `tsc` is clean. Common variants to try:
-
-```ts
-import { Client } from '@modelcontextprotocol/client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client/streamableHttp';
-```
-
-If neither works, the SDK exported names may be slightly different in the installed version. Read `node_modules/@modelcontextprotocol/client/dist/index.d.ts` to confirm exact exports.
+Expected: zero errors. The stable `@modelcontextprotocol/sdk` package exposes `Client` and `StreamableHTTPClientTransport` via subpaths (`@modelcontextprotocol/sdk/client/index.js` and `@modelcontextprotocol/sdk/client/streamableHttp.js`) — confirmed in this repo's installed v1.29.0. If a future version reorganises exports, check `node_modules/@modelcontextprotocol/sdk/dist/esm/client/` for the actual layout.
 
 - [ ] **Step 6: Run the existing unit tests to confirm nothing regressed**
 
@@ -1923,7 +1916,7 @@ Expected: existing 44 + ~30 new = ~74 tests pass. Integration tests are skipped 
 Run:
 
 ```bash
-ls -la node_modules/@modelcontextprotocol/client | head -5
+ls -la node_modules/@modelcontextprotocol/sdk | head -5
 npm audit --omit=dev
 ```
 
@@ -1963,7 +1956,7 @@ Expected: 19+ commits introducing the feature on the dev branch. Do NOT push —
 
 When all tasks complete:
 
-- Production runtime adds one dependency: `@modelcontextprotocol/client`
+- Production runtime adds one dependency: `@modelcontextprotocol/sdk`
 - New module `mcpClient.ts` (~280 lines) with full unit coverage
 - `server.ts` gains one endpoint and ~70 lines inside `handleChat`
 - New System tab section + extended Sources panel + globe tooltip + SSE handlers
