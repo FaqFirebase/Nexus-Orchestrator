@@ -16,6 +16,14 @@ import {
 import { hashPassword, verifyPassword } from "./crypto.js";
 import { fetchUrlAndStrip } from "./fetchUrl.js";
 import {
+  listMcpTools,
+  callMcpTool,
+  invalidateMcpCache,
+  getMcpToolList,
+  unprefixToolName,
+  type McpServer,
+} from "./mcpClient.js";
+import {
   validate, loginSchema, registerSchema, changePasswordSchema, adminCreateUserSchema, adminResetPasswordSchema,
   configSchema, routerSchema, chatSchema,
   createConversationSchema, updateConversationSchema,
@@ -1135,6 +1143,29 @@ async function startServer() {
   });
 
   // Main Chat Routing Endpoint (uses requesting user's config)
+  app.post("/api/mcp/refresh/:serverId", authMiddleware, apiLimiter, async (req, res) => {
+    try {
+      const userId = req.userId!;
+      const serverId = req.params.serverId;
+      const config = getUserConfig(userId);
+      const servers: McpServer[] = (config as any).mcpServers || [];
+      const server = servers.find(s => s.id === serverId);
+      if (!server) {
+        return res.status(404).json({ error: 'MCP server not found' });
+      }
+      invalidateMcpCache(userId, serverId);
+      const result = await listMcpTools(userId, server);
+      res.json({
+        healthy: result.healthy,
+        toolCount: result.tools.length,
+        errorKind: result.errorKind,
+      });
+    } catch (error: any) {
+      log.error({ err: error }, 'MCP refresh failed');
+      res.status(500).json({ error: 'Failed to refresh MCP server' });
+    }
+  });
+
   app.post("/api/chat", authMiddleware, apiLimiter, validate(chatSchema), async (req, res) => {
     const { messages, decision } = req.body;
     const queue = getChatQueue(req.userId!);
