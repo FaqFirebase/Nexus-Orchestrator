@@ -313,6 +313,33 @@ export function useChat(deps: UseChatDeps) {
                 continue;
               }
 
+              if (json.tool_called) {
+                const tc = json.tool_called as { serverId: string; serverName: string; toolName: string; args?: unknown };
+                setRoutingStep('searching');
+                setMessages(msgs => msgs.map(m => {
+                  if (m.id !== assistantMsg.id) return m;
+                  const calls = m.mcpToolCalls || [];
+                  return { ...m, mcpToolCalls: [...calls, { serverId: tc.serverId, serverName: tc.serverName, toolName: tc.toolName, args: tc.args }] };
+                }));
+                continue;
+              }
+
+              if (json.tool_result) {
+                const tr = json.tool_result as { serverId: string; isError: boolean; errorKind?: string; durationMs?: number };
+                setMessages(msgs => msgs.map(m => {
+                  if (m.id !== assistantMsg.id) return m;
+                  const calls = m.mcpToolCalls || [];
+                  if (calls.length === 0) return m;
+                  const reversedIdx = [...calls].reverse().findIndex(c => c.serverId === tr.serverId && c.isError === undefined);
+                  if (reversedIdx < 0) return m;
+                  const realIdx = calls.length - 1 - reversedIdx;
+                  const updated = [...calls];
+                  updated[realIdx] = { ...updated[realIdx], isError: tr.isError, errorKind: tr.errorKind as any, durationMs: tr.durationMs };
+                  return { ...m, mcpToolCalls: updated };
+                }));
+                continue;
+              }
+
               if (json.message?.content) {
                 accumulatedContent += json.message.content;
                 setRoutingStep('generating');
