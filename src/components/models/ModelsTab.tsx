@@ -1,6 +1,7 @@
 import type { NexusConfig, ConnectionStatus } from '../../types';
 import ProviderConfig from './ProviderConfig';
 import RouterConfig from './RouterConfig';
+import { McpServerConfig } from '../system/McpServerConfig';
 import DiscoveredModels from './DiscoveredModels';
 import CategoryMappings from './CategoryMappings';
 
@@ -44,6 +45,11 @@ export default function ModelsTab(props: ModelsTabProps) {
         authRequired={props.authRequired}
         isAuthorized={props.isAuthorized}
         logout={props.logout}
+      />
+
+      <McpServerConfig
+        servers={props.config.mcpServers || []}
+        onChange={(mcpServers) => props.setConfig(prev => ({ ...prev, mcpServers }))}
       />
 
       <RouterConfig
