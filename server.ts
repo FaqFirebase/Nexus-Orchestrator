@@ -795,6 +795,27 @@ async function startServer() {
         }
       }
 
+      // Invalidate MCP cache for any server whose connection-relevant fields changed
+      const prevServers: McpServer[] = (currentConfig as any).mcpServers || [];
+      const nextServers: McpServer[] = (newConfig as any).mcpServers || [];
+      const prevById = new Map(prevServers.map((s: McpServer) => [s.id, s]));
+      const nextById = new Map(nextServers.map((s: McpServer) => [s.id, s]));
+      for (const id of prevById.keys()) {
+        if (!nextById.has(id)) invalidateMcpCache(req.userId!, id);
+      }
+      for (const [id, s] of nextById) {
+        const prev = prevById.get(id);
+        if (!prev) { invalidateMcpCache(req.userId!, id); continue; }
+        const sameUrl = prev.url === s.url;
+        const sameBearer = (prev.bearer || '') === (s.bearer || '');
+        const sameEnabled = prev.enabled === s.enabled;
+        const sameName = prev.name === s.name;
+        const sameHeaders = JSON.stringify(prev.headers || {}) === JSON.stringify(s.headers || {});
+        if (!sameUrl || !sameBearer || !sameEnabled || !sameName || !sameHeaders) {
+          invalidateMcpCache(req.userId!, id);
+        }
+      }
+
       writeUserConfig(req.userId!, newConfig, ENCRYPTION_SECRET);
 
       res.json({ status: "ok" });
