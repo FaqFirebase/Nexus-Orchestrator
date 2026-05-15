@@ -147,3 +147,27 @@ export function invalidateMcpCache(userId: string, serverId?: string): void {
 export function _resetCacheForTests(): void {
   cache.clear();
 }
+
+export type McpErrorKind = 'tool' | 'protocol' | 'auth' | 'not_found' | 'unknown';
+
+export function classifyMcpError(err: unknown): McpErrorKind {
+  if (!err || typeof err !== 'object') return 'unknown';
+  const e = err as { name?: string; code?: string | number; status?: number; message?: string };
+
+  const status = e.status;
+  if (status === 401 || status === 403) return 'auth';
+
+  const code = e.code;
+  if (code === 'RequestTimeout' || code === 'ConnectionClosed') return 'protocol';
+  if (e.name === 'AbortError') return 'protocol';
+
+  const msg = (e.message || '').toLowerCase();
+  if (msg.includes('unknown tool') || msg.includes('tool not found') || msg.includes('method not found')) {
+    return 'not_found';
+  }
+  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('socket hang up') || msg.includes('network')) {
+    return 'protocol';
+  }
+
+  return 'unknown';
+}

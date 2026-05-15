@@ -14,6 +14,7 @@ import {
   setCachedTools,
   invalidateMcpCache,
   _resetCacheForTests,
+  classifyMcpError,
   type McpServer,
   type McpToolDef,
 } from '../mcpClient.js';
@@ -161,5 +162,40 @@ describe('mcp cache', () => {
     setCachedTools('u2', 's1', { tools: [{ name: 'x__y', description: 'X', inputSchema: {} }], fetchedAt: Date.now(), healthy: true });
     expect(getCachedTools('u1', 's1')?.tools[0].name).toBe('a__b');
     expect(getCachedTools('u2', 's1')?.tools[0].name).toBe('x__y');
+  });
+});
+
+describe('classifyMcpError', () => {
+  it('maps timeout-like AbortError to protocol', () => {
+    const err: any = new Error('aborted'); err.name = 'AbortError';
+    expect(classifyMcpError(err)).toBe('protocol');
+  });
+
+  it('maps SDK error with timeout code to protocol', () => {
+    const err: any = new Error('timed out'); err.code = 'RequestTimeout';
+    expect(classifyMcpError(err)).toBe('protocol');
+  });
+
+  it('maps SDK error with connection-closed code to protocol', () => {
+    const err: any = new Error('closed'); err.code = 'ConnectionClosed';
+    expect(classifyMcpError(err)).toBe('protocol');
+  });
+
+  it('maps HTTP 401 to auth', () => {
+    const err: any = new Error('unauthorized'); err.status = 401;
+    expect(classifyMcpError(err)).toBe('auth');
+  });
+
+  it('maps HTTP 403 to auth', () => {
+    const err: any = new Error('forbidden'); err.status = 403;
+    expect(classifyMcpError(err)).toBe('auth');
+  });
+
+  it('maps "unknown tool" message to not_found', () => {
+    expect(classifyMcpError(new Error('Method not found: unknown tool xyz'))).toBe('not_found');
+  });
+
+  it('falls back to unknown for unrecognized errors', () => {
+    expect(classifyMcpError(new Error('something exploded'))).toBe('unknown');
   });
 });
