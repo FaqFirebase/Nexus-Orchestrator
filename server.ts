@@ -1628,6 +1628,23 @@ async function startServer() {
               toolText = result.text;
               accumulatedSources.push(result.source);
               res.write(JSON.stringify({ sources: accumulatedSources }) + '\n');
+            } else if (name && name.includes('__')) {
+              const unprefixed = unprefixToolName(name);
+              const server = unprefixed ? mcpServers.find(s => s.enabled && s.name === unprefixed.serverName) : null;
+              if (!server || !unprefixed) {
+                toolText = `Error: tool ${name} is no longer available.`;
+                invalidateMcpCache(req.userId!);
+                log.warn({ name, userId: req.userId }, 'MCP tool not found');
+              } else {
+                log.info({ serverId: server.id, serverName: server.name, toolName: unprefixed.toolName, userId: req.userId, iteration }, 'MCP tool call');
+                res.write(JSON.stringify({ tool_called: { serverId: server.id, serverName: server.name, toolName: unprefixed.toolName, args } }) + '\n');
+                const result = await callMcpTool(server, name, args);
+                toolText = result.content;
+                res.write(JSON.stringify({ tool_result: { serverId: server.id, isError: result.isError, errorKind: result.errorKind, durationMs: result.durationMs } }) + '\n');
+                if (result.errorKind === 'auth' || result.errorKind === 'not_found') {
+                  invalidateMcpCache(req.userId!, server.id);
+                }
+              }
             } else {
               toolText = `Unknown tool: ${name}`;
               log.warn({ name, userId: req.userId }, 'Unknown tool call requested');
