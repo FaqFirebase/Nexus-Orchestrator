@@ -1351,8 +1351,22 @@ async function startServer() {
         }
       };
 
-      const toolList = [webSearchTool, fetchUrlTool];
-      const MAX_TOOL_ITERATIONS = 4;
+      // MCP tools — append user-configured MCP server tools when search is enabled and not FAST
+      const mcpServers: McpServer[] = (config as any).mcpServers || [];
+      const mcpAllowed = decision.category !== 'FAST' && searchEnabled && mcpServers.some(s => s.enabled);
+      const mcpToolDefs = mcpAllowed ? await getMcpToolList(req.userId!, mcpServers) : [];
+      const mcpToolList = mcpToolDefs.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: (t.inputSchema && Object.keys(t.inputSchema).length > 0)
+            ? t.inputSchema
+            : { type: 'object', properties: {} },
+        },
+      }));
+      const toolList = [webSearchTool, fetchUrlTool, ...mcpToolList];
+      const MAX_TOOL_ITERATIONS = 8;
 
       let response: any = null;
       let lastError: any = null;
