@@ -52,6 +52,34 @@ const categorySchema = z.object({
   provider: z.enum(['local', 'cloud']),
 });
 
+const mcpHeaderNameRe = /^[A-Za-z0-9_-]+$/;
+const mcpHeaderBlocklist = new Set(['host', 'content-length', 'cookie', 'origin', 'authorization', 'content-type']);
+
+const mcpHeadersSchema = z.record(
+  z.string().regex(mcpHeaderNameRe, 'Invalid header name').refine(
+    (n) => !mcpHeaderBlocklist.has(n.toLowerCase()),
+    { message: 'Header name is reserved' }
+  ),
+  z.string()
+    .max(4096)
+    .regex(/^[\x20-\x7e]*$/, 'Header value must be printable ASCII')
+);
+
+export const mcpServerSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().regex(/^[a-z0-9_-]{1,32}$/, 'Name must be lowercase a-z, 0-9, _, -').refine(
+    (n) => !n.includes('__'),
+    { message: "Name cannot contain '__'" }
+  ),
+  url: z.string().url().refine(
+    (u) => /^https?:\/\//i.test(u),
+    { message: 'URL must use http or https' }
+  ),
+  bearer: z.string().max(4096).optional(),
+  headers: mcpHeadersSchema.optional(),
+  enabled: z.boolean(),
+});
+
 export const configSchema = z.object({
   localProviders: z.array(localProviderSchema).optional(),
   // Legacy fields kept for backward-compat migration — overridden by localProviders on read
@@ -72,6 +100,7 @@ export const configSchema = z.object({
     url: z.string().optional().default(''),
     alwaysOn: z.boolean().optional().default(false),
   }).optional(),
+  mcpServers: z.array(mcpServerSchema).max(10).optional(),
 });
 
 // Router

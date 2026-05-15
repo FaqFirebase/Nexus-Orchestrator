@@ -196,3 +196,35 @@ describe('updateConversationSchema', () => {
     ).toBe(true);
   });
 });
+
+import { mcpServerSchema } from '../validation.js';
+
+describe('mcpServerSchema', () => {
+  const valid = { id: 'a', name: 'github', url: 'https://example.com/mcp', enabled: true };
+
+  it('accepts a minimal valid server', () => {
+    expect(mcpServerSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('rejects bad name (uppercase)', () => {
+    expect(mcpServerSchema.safeParse({ ...valid, name: 'GitHub' }).success).toBe(false);
+  });
+
+  it('rejects name with separator', () => {
+    expect(mcpServerSchema.safeParse({ ...valid, name: 'has__sep' }).success).toBe(false);
+  });
+
+  it('rejects non-http(s) URL', () => {
+    expect(mcpServerSchema.safeParse({ ...valid, url: 'ftp://x' }).success).toBe(false);
+  });
+
+  it('accepts optional bearer and headers', () => {
+    expect(mcpServerSchema.safeParse({ ...valid, bearer: 'abc123', headers: { 'X-Foo': 'bar' } }).success).toBe(true);
+  });
+
+  it('rejects more than 10 servers in configSchema', () => {
+    const servers = Array.from({ length: 11 }, (_, i) => ({ ...valid, id: `s${i}`, name: `srv-${i}` }));
+    const result = configSchema.safeParse({ mcpServers: servers });
+    expect(result.success).toBe(false);
+  });
+});
