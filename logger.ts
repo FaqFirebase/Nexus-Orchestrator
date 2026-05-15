@@ -10,6 +10,16 @@ const logger = pino({
       return { level: label };
     },
   },
+  redact: {
+    paths: [
+      'headers.authorization',
+      'headers["x-api-key"]',
+      'req.headers.authorization',
+      '*.bearer',
+      '*.*.bearer',
+    ],
+    censor: '[REDACTED]',
+  },
   base: { service: 'nexus-orchestrator' },
 });
 
