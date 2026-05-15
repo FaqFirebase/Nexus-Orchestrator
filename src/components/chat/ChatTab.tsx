@@ -24,6 +24,7 @@ interface ChatTabProps {
   webSearchEnabled: boolean;
   onToggleWebSearch: () => void;
   searxngConfigured: boolean;
+  enabledMcpServerCount?: number;
   showThinkingEnabled: boolean;
   onToggleThinking: () => void;
 }
@@ -32,7 +33,7 @@ export default function ChatTab({
   messages, connectionStatus, isLoading, routingStep,
   input, setInput, attachments, removeAttachment,
   fileInputRef, handleFileSelect, handleSend, handleStop, setActiveTab,
-  webSearchEnabled, onToggleWebSearch, searxngConfigured,
+  webSearchEnabled, onToggleWebSearch, searxngConfigured, enabledMcpServerCount,
   showThinkingEnabled, onToggleThinking,
 }: ChatTabProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -122,6 +123,7 @@ export default function ChatTab({
         webSearchEnabled={webSearchEnabled}
         onToggleWebSearch={onToggleWebSearch}
         searxngConfigured={searxngConfigured}
+        enabledMcpServerCount={enabledMcpServerCount}
         showThinkingEnabled={showThinkingEnabled}
         onToggleThinking={onToggleThinking}
       />
