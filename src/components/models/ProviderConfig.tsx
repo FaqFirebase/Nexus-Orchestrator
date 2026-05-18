@@ -66,7 +66,7 @@ function SaveFeedback({ saveStatus, saveError }: { saveStatus: ProviderConfigPro
             </span>
           </div>
           {saveStatus === 'error' && saveError && (
-            <span className="text-[8px] font-mono text-red-500/80 max-w-[150px] truncate">{saveError}</span>
+            <span className="text-[8px] font-mono text-red-500/80 max-w-[220px] text-right break-words">{saveError}</span>
           )}
         </motion.div>
       )}

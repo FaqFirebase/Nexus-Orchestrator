@@ -1340,7 +1340,7 @@ async function startServer() {
         type: 'function',
         function: {
           name: 'fetch_url',
-          description: 'Fetch a URL and return its page contents as plain text. Use this to read a specific web page (e.g. one returned by web_search) for details beyond the search snippet.',
+          description: 'Fetch a URL and return its page contents as plain text. Use this whenever the user asks you to read, fetch, or summarize a specific URL.',
           parameters: {
             type: 'object',
             properties: {
@@ -1569,7 +1569,13 @@ async function startServer() {
           return msg;
         };
 
-        const workingMessages: any[] = messages.map(toProviderMsg);
+        const workingMessages: any[] = [
+          {
+            role: 'system',
+            content: 'You have access to web tools. Use fetch_url to retrieve the contents of any URL the user asks you to read, fetch, or summarize. Use web_search to find current information. Always call these tools rather than relying on training data for web content.',
+          },
+          ...messages.map(toProviderMsg),
+        ];
         const accumulatedSources: SearchSource[] = [];
 
         let currentResponse: any = response;
