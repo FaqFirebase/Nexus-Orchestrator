@@ -14,7 +14,8 @@ Nexus is more than a chat interface — it's an **orchestration layer** for your
 - **Hybrid Orchestration** — Mix local and cloud models per category. Switch seamlessly without changing your workflow.
 - **Multi-User Support** — Multiple users with per-user provider config, category mappings, conversations, and projects. Admin manages users from the System tab.
 - **Vision & Document Support** — Upload images and documents directly in the chat. Vision models receive them in the correct format automatically.
-- **Web Search via Tool Calling** — Connect a self-hosted SearXNG instance so the LLM can search the web when it needs current information. Enable globally or per-chat with a single click.
+- **MCP Server Consumption** — Add external MCP servers in the Models tab and their tools become available to the LLM during chat alongside `web_search` and `fetch_url`. Tools are namespaced as `<server>__<tool>`. Per-user config with bearer token and custom header auth. SSRF-protected. Up to 10 servers per user.
+- **Web Search & URL Fetch via Tool Calling** — Connect a self-hosted SearXNG instance and the LLM gets two tools: `web_search` to query the web, and `fetch_url` to read a specific page's content. The model can chain them (search → fetch a result → answer) up to 8 tool calls per turn. Enable globally or per-chat with a single click.
 - **Thinking Toggle** — For Ollama models that support it, Nexus sends `think: true` via the native API and streams reasoning live as it generates. Models like DeepSeek R1 that natively emit `<think>` tags are also supported. Reasoning appears in a collapsible purple section above the response. Toggle globally (System tab) or per-chat (Brain icon). Models that don't support thinking fall back silently.
 - **Privacy First** — Point the router at a local Ollama model and your prompts never leave your network.
 - **Structured Logging** — JSON logs in production (pino), pretty-printed in dev. Control verbosity with `LOG_LEVEL`.
@@ -194,16 +195,36 @@ You can add custom categories using the input at the bottom of the Models tab.
 
 ---
 
-### Web Search (SearXNG)
+### Web Search & URL Fetch (SearXNG)
 
-Connect a self-hosted SearXNG instance to give your LLMs tool-calling access to the web. The model decides when to search — it won't search on every message.
+Connect a self-hosted SearXNG instance to give your LLMs tool-calling access to the web. When enabled, the LLM gets two tools:
 
-- **SearXNG URL** — The address of your SearXNG instance (e.g. `http://192.168.1.50:8080`). Must be accessible from the Nexus container.
-- **Always On** — Include the search tool in every request. Otherwise, use the 🌐 globe button in the chat input to enable it per-chat.
+- **`web_search`** — Query SearXNG for current information. Returns title, URL, and snippet for the top results.
+- **`fetch_url`** — Fetch a specific URL and return its page content as plain text. Useful for reading details beyond the search snippet, or fetching a URL the user pastes directly.
 
-> Requires a model that supports tool calling. Recommended: `llama3.1`, `llama3.2`, `qwen2.5`, `mistral-nemo`. FAST category always skips search.
+The model decides when and how to use them — it can call `web_search` first, pick a result, then call `fetch_url` on it, then answer. Up to **8 tool calls per chat turn** before Nexus forces a final answer (shared with MCP tool calls).
 
-When a search fires mid-response, the routing indicator switches to **> Searching the Web...** with a blue globe. Completed messages show a **Web Search: \<query\>** badge.
+**Configuration:**
+- **SearXNG URL** — The address of your SearXNG instance (e.g. `http://192.168.1.50:8080`). Must be accessible from the Nexus container. The `fetch_url` tool is gated by this setting too — if SearXNG isn't configured, the globe toggle does nothing.
+- **Always On** — Include both tools in every request. Otherwise, use the 🌐 globe button in the chat input to enable them per-chat.
+
+> Requires a model that supports tool calling. Recommended: `llama3.1`, `llama3.2`, `qwen2.5`, `mistral-nemo`. FAST category always skips both tools.
+
+**Usage examples:**
+- *"What's new in React 19?"* — model calls `web_search`, then `fetch_url` on a result for details, then answers.
+- *"Summarize https://example.com/changelog"* — model calls `fetch_url` directly.
+- *"Compare the pricing on \<url1\> and \<url2\>"* — model calls `fetch_url` twice.
+
+**Indicators:**
+- Mid-response: routing status shows **> Searching the Web...** with a blue globe.
+- Completed messages show **Web Search: \<query\>** and/or **Fetched: \<host\>** badges.
+- A collapsible **Sources** panel below the response lists every search result and fetched page used, in order.
+
+**Fetch behavior:**
+- Plain-text only — HTML is stripped, scripts/styles/comments removed, common entities decoded.
+- Content capped at 50 KB (≈12k tokens). Longer pages get a `...[content truncated]` marker.
+- 15-second per-fetch timeout. Non-text content types (PDF, binary) are reported back to the model so it can recover.
+- SSRF-protected: cloud metadata endpoints and non-http(s) schemes are blocked. RFC-1918 LAN addresses are allowed so you can fetch local docs.
 
 ---
 
@@ -258,19 +279,18 @@ docker build -t nexus-orchestrator:latest .
 
 ### Planned
 
-- [ ] **URL fetch/browse tool** — Companion to web search; lets the LLM fetch and read the content of a specific URL directly
-- [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
+- [ ] **Ollama backend abort** — Stop Ollama generation server-side on client disconnect. Not a Nexus bug: Nexus already closes the upstream connection immediately; the runner keeps going because Ollama/llama.cpp doesn't check for a closed connection mid-generation ([ollama#2876](https://github.com/ollama/ollama/issues/2876)). Resolves upstream.
 
-See [ROADMAP.md](ROADMAP.md) for the full history of completed features.
+See **[roadmap.html](docs/roadmap.html)** for the full visual roadmap (planned items + complete release history).
 
 ---
 
 ## Changelog
 
+**v1.2.0** — MCP server consumption: add external MCP servers in the Models tab as LLM tools (`<server>__<tool>` prefix, per-user config, bearer auth, 5-min TTL cache, SSRF guardrails). Agentic loop cap raised 4 → 8. URL fetch tool (`fetch_url`) alongside web search — LLM can chain search → fetch → answer. Tool-calling path refactored to multi-turn agentic loop. Thinking toggle for reasoning models (DeepSeek R1, QwQ). Code block horizontal scroll. Provider URL canonicalization fix. CVE patches (`express-rate-limit`, `postcss`, `hono`, `qs`, `vite`, `esbuild`, `@babel/core`). Dead code cleanup. Docs moved into `docs/`; chat messages centered.
+
 **v1.1.9** — Thinking toggle for reasoning models (DeepSeek R1, QwQ, etc.). Client-side `<think>` tag parsing with collapsible display above responses. Global default (System tab) and per-chat override (Brain icon). Docker image reduced from 127 MB to ~86 MB via dependency cleanup and build-stage pruning. Added CONTRIBUTING.md, SECURITY.md, and GitHub issue templates.
 
 **v1.1.8** — Copy button on code blocks (hover to reveal, 2-second "Copied" feedback). FAST category routing tightened — now restricted to greetings and micro-interactions only; factual questions route to GENERAL. Security hardening: CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
 
-**v1.1.7** — Collapsible settings sections with persistent state (all Models tab sections collapse/expand and remember their state across refreshes). Active tab persists on page refresh. Discovered Models redesigned as a provider-grouped collapsible list with active router highlighting and size-tiered colour coding. Mixed content fix for HTTPS deployments.
-
-See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+See [changelog.html](docs/changelog.html) for the full release history.

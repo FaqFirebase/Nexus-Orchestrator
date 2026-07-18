@@ -182,6 +182,7 @@ export default function App() {
                   webSearchEnabled={chat.webSearchEnabled}
                   onToggleWebSearch={() => chat.setWebSearchEnabled(v => !v)}
                   searxngConfigured={!!(configHook.config.searxng?.url)}
+                  enabledMcpServerCount={(configHook.config.mcpServers || []).filter(s => s.enabled).length}
                   showThinkingEnabled={showThinkingEnabled}
                   onToggleThinking={() => setShowThinkingEnabled(prev => !prev)}
                 />

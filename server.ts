@@ -1,20 +1,28 @@
 import express from "express";
 import path from "path";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { parse as parseCookieHeader } from "cookie";
 import log from "./logger.js";
 import {
-  initDb, readConfig, writeConfig, readUserConfig, writeUserConfig,
+  initDb, readUserConfig, writeUserConfig,
   listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv,
   listProjects, createProject, updateProject, deleteProject, assignConversation,
-  bootstrapAdmin, createUser, getUserByUsername, getUserById, listUsers, updateUserPassword, deleteUser, getUserCount,
+  bootstrapAdmin, createUser, getUserByUsername, getUserById, listUsers, updateUserPassword, deleteUser,
   getAdminSettings, updateAdminSettings,
   close as closeDb
 } from "./db.js";
 import { hashPassword, verifyPassword } from "./crypto.js";
+import { fetchUrlAndStrip } from "./fetchUrl.js";
+import {
+  listMcpTools,
+  callMcpTool,
+  invalidateMcpCache,
+  getMcpToolList,
+  unprefixToolName,
+  type McpServer,
+} from "./mcpClient.js";
 import {
   validate, loginSchema, registerSchema, changePasswordSchema, adminCreateUserSchema, adminResetPasswordSchema,
   configSchema, routerSchema, chatSchema,
@@ -24,9 +32,6 @@ import {
 } from "./validation.js";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || (() => {
@@ -488,7 +493,7 @@ async function startServer() {
     next();
   });
 
-  const initialConfig = await initDb(ENCRYPTION_SECRET, DEFAULT_CONFIG);
+  await initDb(ENCRYPTION_SECRET, DEFAULT_CONFIG);
 
   // Bootstrap admin user from ADMIN_API_KEY if no users exist
   if (ADMIN_API_KEY) {
@@ -769,6 +774,45 @@ async function startServer() {
           if (incomingKey && (incomingKey.includes("...") || incomingKey === "****")) {
             newConfig.localProviders[i].key = currentConfig.localProviders?.[i]?.key || '';
           }
+        }
+      }
+
+      // Canonicalize category model providerUrls against the current provider list.
+      // CategoryModel stores { name, providerUrl } at assignment time — if a provider URL is
+      // renamed (even in a prior save), stale entries won't match any known provider.
+      // Replace any unrecognised providerUrl with the first local provider URL as fallback.
+      if (newConfig.localProviders?.length > 0 && newConfig.categories) {
+        const normalize = (u: string) => u.replace(/\/$/, '').toLowerCase();
+        const knownUrls = new Set((newConfig.localProviders as any[]).map((p: any) => normalize(p.url || '')));
+        const fallbackUrl = newConfig.localProviders[0].url;
+        for (const cat of Object.values(newConfig.categories) as any[]) {
+          if (!Array.isArray(cat.models)) continue;
+          for (const m of cat.models) {
+            if (m && m.providerUrl && !knownUrls.has(normalize(m.providerUrl))) {
+              m.providerUrl = fallbackUrl;
+            }
+          }
+        }
+      }
+
+      // Invalidate MCP cache for any server whose connection-relevant fields changed
+      const prevServers: McpServer[] = (currentConfig as any).mcpServers || [];
+      const nextServers: McpServer[] = (newConfig as any).mcpServers || [];
+      const prevById = new Map(prevServers.map((s: McpServer) => [s.id, s]));
+      const nextById = new Map(nextServers.map((s: McpServer) => [s.id, s]));
+      for (const id of prevById.keys()) {
+        if (!nextById.has(id)) invalidateMcpCache(req.userId!, id);
+      }
+      for (const [id, s] of nextById) {
+        const prev = prevById.get(id);
+        if (!prev) { invalidateMcpCache(req.userId!, id); continue; }
+        const sameUrl = prev.url === s.url;
+        const sameBearer = (prev.bearer || '') === (s.bearer || '');
+        const sameEnabled = prev.enabled === s.enabled;
+        const sameName = prev.name === s.name;
+        const sameHeaders = JSON.stringify(prev.headers || {}) === JSON.stringify(s.headers || {});
+        if (!sameUrl || !sameBearer || !sameEnabled || !sameName || !sameHeaders) {
+          invalidateMcpCache(req.userId!, id);
         }
       }
 
@@ -1120,6 +1164,29 @@ async function startServer() {
   });
 
   // Main Chat Routing Endpoint (uses requesting user's config)
+  app.post("/api/mcp/refresh/:serverId", authMiddleware, apiLimiter, async (req, res) => {
+    try {
+      const userId = req.userId!;
+      const serverId = req.params.serverId;
+      const config = getUserConfig(userId);
+      const servers: McpServer[] = (config as any).mcpServers || [];
+      const server = servers.find(s => s.id === serverId);
+      if (!server) {
+        return res.status(404).json({ error: 'MCP server not found' });
+      }
+      invalidateMcpCache(userId, serverId);
+      const result = await listMcpTools(userId, server);
+      res.json({
+        healthy: result.healthy,
+        toolCount: result.tools.length,
+        errorKind: result.errorKind,
+      });
+    } catch (error: any) {
+      log.error({ err: error }, 'MCP refresh failed');
+      res.status(500).json({ error: 'Failed to refresh MCP server' });
+    }
+  });
+
   app.post("/api/chat", authMiddleware, apiLimiter, validate(chatSchema), async (req, res) => {
     const { messages, decision } = req.body;
     const queue = getChatQueue(req.userId!);
@@ -1228,8 +1295,6 @@ async function startServer() {
         return endpoints;
       };
 
-      const hasAttachments = messages.some((m: any) => m.attachments && m.attachments.length > 0);
-
       // Build ordered list of { model, baseUrl, apiKey } to try — each fallback may come from a different provider
       const buildModelsToTry = (): Array<{ model: string; baseUrl: string; apiKey: string }> => {
         const result: Array<{ model: string; baseUrl: string; apiKey: string }> = [];
@@ -1270,6 +1335,38 @@ async function startServer() {
           }
         }
       };
+
+      const fetchUrlTool = {
+        type: 'function',
+        function: {
+          name: 'fetch_url',
+          description: 'Fetch a URL and return its page contents as plain text. Use this whenever the user asks you to read, fetch, or summarize a specific URL.',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: { type: 'string', description: 'The absolute http(s) URL to fetch' }
+            },
+            required: ['url']
+          }
+        }
+      };
+
+      // MCP tools — append user-configured MCP server tools when search is enabled and not FAST
+      const mcpServers: McpServer[] = (config as any).mcpServers || [];
+      const mcpAllowed = decision.category !== 'FAST' && searchEnabled && mcpServers.some(s => s.enabled);
+      const mcpToolDefs = mcpAllowed ? await getMcpToolList(req.userId!, mcpServers) : [];
+      const mcpToolList = mcpToolDefs.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: (t.inputSchema && Object.keys(t.inputSchema).length > 0)
+            ? t.inputSchema
+            : { type: 'object', properties: {} },
+        },
+      }));
+      const toolList = [webSearchTool, fetchUrlTool, ...mcpToolList];
+      const MAX_TOOL_ITERATIONS = 8;
 
       let response: any = null;
       let lastError: any = null;
@@ -1342,7 +1439,7 @@ async function startServer() {
                 }),
                 stream: !searchEnabled,
                 ...(localThinkingEnabled && url.endsWith('/api/chat') ? { think: true } : {}),
-                ...(searchEnabled ? { tools: [webSearchTool], tool_choice: 'auto' } : { stream_options: { include_usage: true } })
+                ...(searchEnabled ? { tools: toolList, tool_choice: 'auto' } : { stream_options: { include_usage: true } })
               }),
               signal: attemptController.signal,
             });
@@ -1442,90 +1539,169 @@ async function startServer() {
       res.setHeader("Connection", "keep-alive");
 
       if (searchEnabled) {
-        // --- Tool-calling path ---
-        // First response is non-streaming; check for tool_calls before streaming final reply.
-        const firstJson = await response.json() as any;
+        // --- Tool-calling path (multi-turn agentic loop) ---
+        // Each iteration: non-streaming model call, process any tool_calls, append to history.
+        // Loop terminates when model emits no more tool_calls OR we hit MAX_TOOL_ITERATIONS.
+        // On natural termination, write the final content as a single SSE chunk.
+        // On forced termination (max reached with tool calls still pending), do one final
+        // streaming pass with tool_choice='none' to force an answer.
         const isOllamaNative = fullUrl.endsWith('/api/chat');
 
-        const toolCalls = firstJson.choices?.[0]?.message?.tool_calls
-          || firstJson.message?.tool_calls;
-
-        if (toolCalls?.length && toolCalls[0].function?.name === 'web_search') {
-          const rawArgs = toolCalls[0].function.arguments;
-          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
-          const query: string = args.query || '';
-          log.info({ query, userId: req.userId }, 'web_search tool call — querying SearXNG');
-
-          // Notify the client that a search is in progress
-          res.write(JSON.stringify({ searching: true, query }) + '\n');
-
-          const { text: searchResults, sources } = await runSearxngSearch(searxngUrl, query);
-
-          // Send structured sources to client for display
-          if (sources.length > 0) {
-            res.write(JSON.stringify({ sources }) + '\n');
-          }
-
-          // Build messages for the follow-up streaming request
-          const assistantToolMsg = isOllamaNative
-            ? { role: 'assistant', content: '', tool_calls: toolCalls }
-            : { role: 'assistant', content: null, tool_calls: toolCalls };
-
-          const toolResultMsg = isOllamaNative
-            ? { role: 'tool', content: searchResults }
-            : { role: 'tool', tool_call_id: toolCalls[0].id || 'search_0', content: searchResults };
-
-          // Re-build messages with tool exchange appended
-          const followUpMessages = [...messages.map((m: any) => {
-            const isOllamaNativeUrl = fullUrl.endsWith('/api/chat');
-            let content = m.content || '';
-            const msg: any = { role: m.role, content };
-            if (m.attachments?.length > 0) {
-              const images = m.attachments.filter((a: any) => a.type.startsWith('image/')).map((a: any) =>
-                a.content?.includes(',') ? a.content.split(',')[1] : a.content
-              );
-              if (images.length > 0) {
-                if (isOllamaNativeUrl) {
-                  msg.images = images;
-                } else if (m.role === 'user') {
-                  msg.content = [
-                    { type: 'text', text: m.content || '' },
-                    ...images.map((img: string) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } }))
-                  ];
-                }
+        // Build a message shape that mirrors the initial POST (handles image attachments).
+        const toProviderMsg = (m: any): any => {
+          const msg: any = { role: m.role, content: m.content || '' };
+          if (m.attachments?.length > 0) {
+            const images = m.attachments
+              .filter((a: any) => a.type.startsWith('image/'))
+              .map((a: any) => a.content?.includes(',') ? a.content.split(',')[1] : a.content);
+            if (images.length > 0) {
+              if (isOllamaNative) {
+                msg.images = images;
+                msg.content = m.content || 'Analyze this image';
+              } else if (m.role === 'user') {
+                msg.content = [
+                  { type: 'text', text: m.content || 'Analyze this image' },
+                  ...images.map((img: string) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } }))
+                ];
               }
             }
-            return msg;
-          }), assistantToolMsg, toolResultMsg];
+          }
+          return msg;
+        };
 
-          // Make the follow-up streaming request
-          const followUpController = new AbortController();
-          const followUpTimeout = setTimeout(() => followUpController.abort(), 90000);
-          const followUpRes = await fetch(fullUrl, {
+        const workingMessages: any[] = [
+          {
+            role: 'system',
+            content: 'You have access to web tools. Use fetch_url to retrieve the contents of any URL the user asks you to read, fetch, or summarize. Use web_search to find current information. Always call these tools rather than relying on training data for web content.',
+          },
+          ...messages.map(toProviderMsg),
+        ];
+        const accumulatedSources: SearchSource[] = [];
+
+        let currentResponse: any = response;
+        let iteration = 0;
+        let finalStreamed = false;
+
+        while (iteration < MAX_TOOL_ITERATIONS) {
+          const json = await currentResponse.json() as any;
+          const assistantMsg = json.choices?.[0]?.message || json.message;
+          const toolCalls = assistantMsg?.tool_calls;
+
+          if (!toolCalls?.length) {
+            // No tool calls — this is the final answer. Write it out as one SSE chunk.
+            const content = assistantMsg?.content || '';
+            if (content) res.write(JSON.stringify({ message: { content } }) + '\n');
+            if (json.usage) res.write(JSON.stringify({ usage: json.usage }) + '\n');
+            break;
+          }
+
+          // Append the assistant tool-call message to history
+          const assistantToolMsg = isOllamaNative
+            ? { role: 'assistant', content: assistantMsg.content || '', tool_calls: toolCalls }
+            : { role: 'assistant', content: assistantMsg.content ?? null, tool_calls: toolCalls };
+          workingMessages.push(assistantToolMsg);
+
+          // Process every tool call in this batch
+          for (let i = 0; i < toolCalls.length; i++) {
+            const tc = toolCalls[i];
+            const name = tc.function?.name;
+            const rawArgs = tc.function?.arguments;
+            let args: any = {};
+            if (typeof rawArgs === 'string') {
+              try { args = JSON.parse(rawArgs); } catch { args = {}; }
+            } else if (rawArgs && typeof rawArgs === 'object') {
+              args = rawArgs;
+            }
+
+            let toolText = '';
+            if (name === 'web_search') {
+              const query: string = args.query || '';
+              log.info({ query, userId: req.userId, iteration }, 'web_search tool call');
+              res.write(JSON.stringify({ searching: true, query }) + '\n');
+              const result = await runSearxngSearch(searxngUrl, query);
+              toolText = result.text;
+              accumulatedSources.push(...result.sources);
+              if (accumulatedSources.length) {
+                res.write(JSON.stringify({ sources: accumulatedSources }) + '\n');
+              }
+            } else if (name === 'fetch_url') {
+              const target: string = args.url || '';
+              let host = target;
+              try { host = new URL(target).hostname; } catch { /* malformed — let the helper return its error */ }
+              log.info({ url: target, userId: req.userId, iteration }, 'fetch_url tool call');
+              res.write(JSON.stringify({ fetching: true, url: target, host }) + '\n');
+              const result = await fetchUrlAndStrip(target);
+              toolText = result.text;
+              accumulatedSources.push(result.source);
+              res.write(JSON.stringify({ sources: accumulatedSources }) + '\n');
+            } else if (name && name.includes('__')) {
+              const unprefixed = unprefixToolName(name);
+              const server = unprefixed ? mcpServers.find(s => s.enabled && s.name === unprefixed.serverName) : null;
+              if (!server || !unprefixed) {
+                toolText = `Error: tool ${name} is no longer available.`;
+                invalidateMcpCache(req.userId!);
+                log.warn({ name, userId: req.userId }, 'MCP tool not found');
+              } else {
+                log.info({ serverId: server.id, serverName: server.name, toolName: unprefixed.toolName, userId: req.userId, iteration }, 'MCP tool call');
+                res.write(JSON.stringify({ tool_called: { serverId: server.id, serverName: server.name, toolName: unprefixed.toolName, args } }) + '\n');
+                const result = await callMcpTool(server, name, args);
+                toolText = result.content;
+                res.write(JSON.stringify({ tool_result: { serverId: server.id, isError: result.isError, errorKind: result.errorKind, durationMs: result.durationMs } }) + '\n');
+                if (result.errorKind === 'auth' || result.errorKind === 'not_found') {
+                  invalidateMcpCache(req.userId!, server.id);
+                }
+              }
+            } else {
+              toolText = `Unknown tool: ${name}`;
+              log.warn({ name, userId: req.userId }, 'Unknown tool call requested');
+            }
+
+            const toolResultMsg = isOllamaNative
+              ? { role: 'tool', content: toolText }
+              : { role: 'tool', tool_call_id: tc.id || `tool_${iteration}_${i}`, content: toolText };
+            workingMessages.push(toolResultMsg);
+          }
+
+          iteration++;
+          const isFinalIteration = iteration >= MAX_TOOL_ITERATIONS;
+
+          // Issue the next request. On the final iteration, stream and disable tools to
+          // force the model to produce a final answer.
+          const nextController = new AbortController();
+          const nextTimeout = setTimeout(() => nextController.abort(), attemptTimeoutMs);
+          const nextRes = await fetch(fullUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({
               model: decision.model,
-              messages: followUpMessages,
-              stream: true,
-              stream_options: { include_usage: true },
-              ...(showThinkingEnabled && isOllamaNative ? { think: true } : {}),
+              messages: workingMessages,
+              stream: isFinalIteration,
+              ...(localThinkingEnabled && isOllamaNative ? { think: true } : {}),
+              ...(isFinalIteration
+                ? { stream_options: { include_usage: true } }
+                : { tools: toolList, tool_choice: 'auto' }),
             }),
-            signal: followUpController.signal,
+            signal: nextController.signal,
           });
-          clearTimeout(followUpTimeout);
+          clearTimeout(nextTimeout);
 
-          if (!followUpRes.ok || !followUpRes.body) {
-            throw new Error(`Search follow-up request failed: ${followUpRes.status}`);
+          if (!nextRes.ok || !nextRes.body) {
+            throw new Error(`Tool follow-up request failed: ${nextRes.status}`);
           }
 
-          const reader = followUpRes.body.getReader();
-          req.on('close', () => { reader.cancel().catch(() => {}); });
-          await streamSseToResponse(reader, res, showThinkingEnabled && isOllamaNative);
-        } else {
-          // Model responded without using the tool — write content directly as SSE
-          const content = firstJson.choices?.[0]?.message?.content || firstJson.message?.content || '';
-          if (content) res.write(JSON.stringify({ message: { content } }) + '\n');
+          if (isFinalIteration) {
+            const reader = nextRes.body.getReader();
+            req.on('close', () => { reader.cancel().catch(() => {}); });
+            await streamSseToResponse(reader, res, localThinkingEnabled && isOllamaNative);
+            finalStreamed = true;
+            break;
+          }
+
+          currentResponse = nextRes;
+        }
+
+        if (!finalStreamed) {
+          log.info({ iterations: iteration, sourcesCount: accumulatedSources.length }, 'Tool loop completed');
         }
       } else {
         // --- Normal streaming path ---
@@ -1695,7 +1871,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

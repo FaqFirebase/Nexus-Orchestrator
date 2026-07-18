@@ -12,7 +12,6 @@ coverage
 .env.*
 !.env.example
 *.log
-architecture.html
 PROJECT_HISTORY.md
 *.md
 data

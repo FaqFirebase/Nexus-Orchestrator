@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus Orchestrator — Roadmap</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #09090b; color: #e4e4e7; font-family: 'Segoe UI', system-ui, sans-serif; padding: 40px 20px; }
+
+    /* Nav */
+    .nav {
+      max-width: 1100px; margin: 0 auto 40px;
+      display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid #27272a; padding-bottom: 16px;
+    }
+    .nav-brand { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #52525b; flex: 1; }
+    .nav-link {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 5px 12px; border-radius: 6px; text-decoration: none;
+      border: 1px solid #27272a; color: #71717a; transition: color 0.15s, border-color 0.15s;
+    }
+    .nav-link:hover { color: #e4e4e7; border-color: #52525b; }
+    .nav-link.active { color: #a78bfa; border-color: #a78bfa40; background: #1e1b4b20; }
+
+    h1 { text-align: center; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: #fff; margin-bottom: 6px; }
+    .subtitle { text-align: center; font-size: 0.75rem; color: #52525b; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 40px; }
+
+    .page { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+
+    /* Section wrappers */
+    .box {
+      border-radius: 12px; padding: 20px;
+      border: 1px solid #27272a;
+    }
+    .box.planned   { border-color: #3f3f46; background: #18181b; }
+    .box.completed { border-color: #27272a; background: #141417; }
+
+    .box-title {
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+      margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #27272a;
+    }
+    .planned  .box-title { color: #f59e0b; }
+    .completed .box-title { color: #34d399; }
+
+    /* Version group */
+    .version-group { margin-bottom: 20px; }
+    .version-group:last-child { margin-bottom: 0; }
+    .version-label {
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+      color: #818cf8; margin-bottom: 10px; padding: 4px 0;
+      border-bottom: 1px solid #1e1b4b40;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .version-label::after {
+      content: ''; flex: 1; height: 1px; background: #1e1b4b40;
+    }
+
+    /* Feature items */
+    .item {
+      display: flex; gap: 14px; align-items: flex-start;
+      background: #1c1c22; border: 1px solid #27272a;
+      border-radius: 8px; padding: 14px 16px;
+      margin-bottom: 8px;
+    }
+    .item:last-child { margin-bottom: 0; }
+
+    .item-icon {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+    }
+    .item-icon.pending  { background: #2d1b00; color: #f59e0b; border: 1px solid #f59e0b30; }
+    .item-icon.done     { background: #052e16; color: #4ade80; border: 1px solid #4ade8030; }
+
+    .item-body { flex: 1; }
+    .item-title { font-size: 0.75rem; font-weight: 700; color: #e4e4e7; margin-bottom: 4px; }
+    .item-desc  { font-size: 0.67rem; color: #71717a; line-height: 1.55; }
+    .item-desc strong { color: #a1a1aa; font-weight: 600; }
+
+    .item-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .tag {
+      font-size: 0.58rem; font-weight: 600; letter-spacing: 0.08em;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid;
+    }
+    .tag.amber  { color: #fbbf24; border-color: #fbbf2440; background: #2d1b0020; }
+    .tag.green  { color: #4ade80; border-color: #4ade8040; background: #052e1620; }
+    .tag.blue   { color: #60a5fa; border-color: #60a5fa40; background: #17255420; }
+    .tag.purple { color: #a78bfa; border-color: #a78bfa40; background: #1e1b4b20; }
+    .tag.red    { color: #f87171; border-color: #f8717140; background: #2d0a0a20; }
+    .tag.zinc   { color: #a1a1aa; border-color: #3f3f4660; background: #1c1c2220; }
+
+    .connector {
+      text-align: center; color: #3f3f46; font-size: 0.7rem;
+      letter-spacing: 0.05em; padding: 4px 0;
+    }
+    .connector span { color: #52525b; }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <span class="nav-brand">Nexus Orchestrator · Docs</span>
+  <a class="nav-link" href="architecture.html">Architecture</a>
+  <a class="nav-link active" href="roadmap.html">Roadmap</a>
+  <a class="nav-link" href="changelog.html">Changelog</a>
+  <a class="nav-link" href="https://github.com/FaqFirebase/Nexus-Orchestrator" target="_blank" rel="noopener">GitHub ↗</a>
+</div>
+
+<h1>Nexus Orchestrator</h1>
+<p class="subtitle">Roadmap &amp; Release History · v1.2.0 live</p>
+
+<div class="page">
+
+  <!-- PLANNED -->
+  <div class="box planned">
+    <div class="box-title">Planned</div>
+
+    <div class="item">
+      <div class="item-icon pending">#</div>
+      <div class="item-body">
+        <div class="item-title">Ollama Backend Abort</div>
+        <div class="item-desc">
+          Stopping Ollama generation server-side when the client disconnects.
+          <strong>Not a Nexus bug:</strong> on client disconnect Nexus already closes the upstream connection immediately
+          (<code>reader.cancel()</code> tears down the socket mid-stream — verified). The runner keeps generating because
+          Ollama / llama.cpp does not check for a closed connection between tokens
+          (<a href="https://github.com/ollama/ollama/issues/2876" target="_blank" rel="noopener">ollama#2876</a>,
+          <a href="https://github.com/ggml-org/llama.cpp/issues/24496" target="_blank" rel="noopener">llama.cpp#24496</a>).
+          No Nexus-side fix is possible; it resolves automatically once upstream honors the closed connection.
+        </div>
+        <div class="item-tags">
+          <span class="tag amber">Blocked — upstream Ollama</span>
+          <span class="tag blue">Backend</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-icon pending">#</div>
+      <div class="item-body">
+        <div class="item-title">Dockerfile Non-Root User</div>
+        <div class="item-desc">
+          Run the container as a non-root user via a <strong>PUID/PGID entrypoint</strong> pattern.
+          Currently blocked because Unraid host volumes are root-owned and a simple <code>USER nexus</code>
+          instruction breaks volume writes on first run. Requires an entrypoint script that <code>chown</code>s
+          the data directory before dropping privileges.
+        </div>
+        <div class="item-tags">
+          <span class="tag amber">Blocked — Unraid compat</span>
+          <span class="tag zinc">Docker</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="item-icon pending">#</div>
+      <div class="item-body">
+        <div class="item-title">ENCRYPTION_SECRET Migration</div>
+        <div class="item-desc">
+          <code>ENCRYPTION_SECRET</code> is currently derived from <code>ADMIN_API_KEY</code> when not explicitly set.
+          Decoupling them requires a documented migration path for existing installs —
+          re-encrypting stored config and conversations without data loss during the transition.
+        </div>
+        <div class="item-tags">
+          <span class="tag red">Migration risk</span>
+          <span class="tag blue">Backend</span>
+          <span class="tag zinc">Security</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="connector">▼ <span>Release History</span> ▼</div>
+
+  <!-- COMPLETED -->
+  <div class="box completed">
+    <div class="box-title">Completed</div>
+
+    <!-- v1.2.0 -->
+    <div class="version-group">
+      <div class="version-label">v1.2.0 — live</div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">URL Fetch Tool</div>
+          <div class="item-desc">
+            <code>fetch_url</code> LLM tool added alongside <code>web_search</code>. Fetches a URL server-side, strips HTML to plain text
+            (scripts, styles, comments removed; entities decoded; block tags → newlines), returns up to <strong>50 KB</strong> to the model.
+            Gated by the existing SearXNG globe toggle — no new UI required.
+            Tool-calling path refactored from a single-call branch to a <strong>multi-turn agentic loop</strong>
+            (up to 4 tool calls per turn): model can chain <code>web_search</code> → <code>fetch_url</code> on a result → answer.
+            Both Ollama-native and OpenAI-compat message shapes handled. SSRF-protected (cloud metadata blocked; LAN allowed).
+            15-second per-fetch timeout. New standalone module <code>fetchUrl.ts</code> with 26 unit tests.
+          </div>
+          <div class="item-tags">
+            <span class="tag green">New feature</span>
+            <span class="tag blue">Backend</span>
+            <span class="tag blue">Frontend</span>
+            <span class="tag zinc">26 tests</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Dead Code Cleanup</div>
+          <div class="item-desc">
+            Removed unused imports, dead state, no-op code, and dead exports across
+            <code>server.ts</code>, <code>useConfig.ts</code>, <code>vite.config.ts</code>,
+            <code>useConnection.ts</code>, <code>useConversations.ts</code>, <code>ProviderConfig.tsx</code>, and <code>db.ts</code>.
+            No behaviour changes.
+          </div>
+          <div class="item-tags">
+            <span class="tag zinc">Refactor</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Code Block Horizontal Scroll</div>
+          <div class="item-desc">
+            Code blocks in chat responses now scroll horizontally when content is wider than the container.
+            Copy and language badge buttons repositioned inside the block so they remain reachable regardless of scroll position.
+            <code>whiteSpace: pre</code> prevents line wrapping that previously hid overflow content.
+          </div>
+          <div class="item-tags">
+            <span class="tag red">Bug fix</span>
+            <span class="tag blue">Frontend</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Provider URL Canonicalization</div>
+          <div class="item-desc">
+            On every config save, any <code>CategoryModel.providerUrl</code> not matching a known provider is rewritten to the first provider URL.
+            Fixes stale hostnames persisting in category pools after a provider is renamed — routing failures were intermittent
+            because the old URL still resolved on some requests.
+          </div>
+          <div class="item-tags">
+            <span class="tag red">Bug fix</span>
+            <span class="tag blue">Backend</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">CVE Patches</div>
+          <div class="item-desc">
+            <code>express-rate-limit</code> bumped to <code>^8.5.1</code> (GHSA-v2v4-37r5-5v8g — XSS via <code>ip-address</code> package).
+            <code>overrides.postcss: ^8.5.10</code> added to patch transitive dependency (GHSA-qx2v-qp2m-jg93 — CSS stringify XSS).
+            <code>npm audit</code> reports 0 vulnerabilities.
+          </div>
+          <div class="item-tags">
+            <span class="tag red">Security</span>
+            <span class="tag zinc">Dependencies</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">MCP Tool Support</div>
+          <div class="item-desc">
+            External MCP servers are now available as LLM tools alongside <code>web_search</code> and <code>fetch_url</code>.
+            Configured per user in the Models tab (up to 10 servers). Tools prefixed <code>&lt;server&gt;__&lt;tool&gt;</code>.
+            5-minute TTL cache with manual refresh. Agentic loop cap raised 4 → 8.
+            SSRF blocking, header validation, bearer token redaction. 32 tests.
+          </div>
+          <div class="item-tags">
+            <span class="tag green">New feature</span>
+            <span class="tag blue">Backend</span>
+            <span class="tag blue">Frontend</span>
+            <span class="tag red">Security</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- v1.1.9 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.9 — live</div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Thinking Toggle</div>
+          <div class="item-desc">
+            Server sends <code>think: true</code> to confirmed Ollama instances via native <code>/api/chat</code>.
+            <code>message.thinking</code> chunks synthesized into <code>&lt;think&gt;</code> tags server-side.
+            Models that natively emit <code>&lt;think&gt;</code> tags (DeepSeek R1) parsed identically client-side.
+            Collapsible purple section above the response, scrollable max height. Global default in System tab;
+            per-chat override via Brain icon. Models that reject <code>think: true</code> (400) retry silently without it.
+            FAST category always excluded.
+          </div>
+          <div class="item-tags">
+            <span class="tag green">New feature</span>
+            <span class="tag blue">Backend</span>
+            <span class="tag blue">Frontend</span>
+            <span class="tag purple">Ollama-native</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Ollama Detection Fix</div>
+          <div class="item-desc">
+            Health check now probes <code>/api/tags</code> before <code>/v1/models</code>.
+            Previously Ollama's OpenAI-compatible endpoint responded first, causing misidentification as a generic provider
+            and routing to <code>/v1/chat/completions</code> instead of <code>/api/chat</code> — which meant <code>think: true</code> was never sent.
+          </div>
+          <div class="item-tags">
+            <span class="tag red">Bug fix</span>
+            <span class="tag blue">Backend</span>
+            <span class="tag purple">Ollama-native</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Docker Image Size Reduction</div>
+          <div class="item-desc">
+            All frontend/build/type packages moved to <code>devDependencies</code>.
+            <code>npm prune --production</code> added to Dockerfile builder stage.
+            Unused <code>node-fetch</code> dependency removed (Node 20 has native fetch).
+            Runtime dependencies reduced to 7 packages. Image size: <strong>127 MB → ~86 MB</strong>.
+          </div>
+          <div class="item-tags">
+            <span class="tag green">Improvement</span>
+            <span class="tag zinc">Docker</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Community Standards</div>
+          <div class="item-desc">
+            Added <code>CONTRIBUTING.md</code> (getting started, project structure, commit format, PR guidelines, design principles),
+            <code>SECURITY.md</code> (supported versions, reporting via GitHub private advisories, scope definitions),
+            and GitHub issue templates (bug report, feature request; blank issues disabled).
+          </div>
+          <div class="item-tags">
+            <span class="tag green">Community</span>
+            <span class="tag zinc">Docs</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- v1.1.8 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.8</div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Copy Code Button</div>
+          <div class="item-desc">Hover-to-reveal Copy button on all code blocks. 2-second "Copied" feedback with check icon.</div>
+          <div class="item-tags"><span class="tag green">UX</span><span class="tag blue">Frontend</span></div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">FAST Category Routing Fix</div>
+          <div class="item-desc">FAST restricted to pure micro-interactions only (greetings, yes/no, trivial arithmetic). Any prompt requiring knowledge retrieval or explanation now routes to GENERAL.</div>
+          <div class="item-tags"><span class="tag red">Bug fix</span><span class="tag blue">Backend</span></div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Security Hardening</div>
+          <div class="item-desc">
+            CORS origin echo; SSRF metadata blocklist expanded; security headers (CSP, HSTS, X-Frame-Options);
+            rate limit on password change; session sweep (hourly) + cap (10/user); body limits (1 MB global, 20 MB chat);
+            <code>trust proxy</code>; admin settings Zod schema; password complexity; <code>cookie</code> npm package;
+            error leakage prevention; API key decoupled from admin password.
+          </div>
+          <div class="item-tags"><span class="tag red">Security</span><span class="tag blue">Backend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.7 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.7</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Collapsible Settings Sections + Tab Persistence + Discovered Models Redesign</div>
+          <div class="item-desc">
+            All Models tab sections collapse/expand with localStorage persistence. Active tab persists across page refresh.
+            Discovered Models replaced with a provider-grouped collapsible list; size pills colour-coded by parameter tier.
+            Mixed content fix: removed hardcoded <code>localhost</code> URL from frontend bundle.
+          </div>
+          <div class="item-tags"><span class="tag green">UX</span><span class="tag blue">Frontend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.6 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.6</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">OpenAI-Compat Provider Fixes + Slow-Loading Timeouts</div>
+          <div class="item-desc">
+            Health check and model discovery probe <code>/v1/models</code> correctly for <code>/v1</code>-suffixed base URLs (llama-swap, LM Studio).
+            Per-attempt chat timeout raised to 300s (<code>CHAT_TIMEOUT_MS</code> env var). Loading-retry backoff extended to 5 retries × 30–150s.
+          </div>
+          <div class="item-tags"><span class="tag red">Bug fix</span><span class="tag blue">Backend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.5 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.5</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Multiple Local Providers</div>
+          <div class="item-desc">
+            Configure Ollama, llama-swap, llama.cpp, and any other OpenAI-compatible endpoints simultaneously.
+            <code>localProviders: [{ name, url, key }]</code> replaces the single <code>localUrl</code>/<code>localKey</code> pair.
+            <code>CategoryModel = { name, providerUrl }</code> stores the provider URL at assignment time.
+            Existing configs migrate automatically on first load.
+          </div>
+          <div class="item-tags"><span class="tag green">New feature</span><span class="tag blue">Backend</span><span class="tag blue">Frontend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.4 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.4</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Web Search Sources Display</div>
+          <div class="item-desc">Collapsible Sources panel below assistant response shows the SearXNG results used — title (link), URL, snippet.</div>
+          <div class="item-tags"><span class="tag green">UX</span><span class="tag blue">Frontend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.3 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.3</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">SearXNG Web Search via Tool Calling</div>
+          <div class="item-desc">
+            LLM-driven <code>web_search</code> tool. Configure SearXNG URL in Models tab. Always-on toggle or per-chat globe icon.
+            Server handles full agentic loop and streams the final response. FAST category skips tool injection.
+          </div>
+          <div class="item-tags"><span class="tag green">New feature</span><span class="tag blue">Backend</span><span class="tag blue">Frontend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.2 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.2</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Request Queuing</div>
+          <div class="item-desc">Per-user FIFO queue for chat requests. Max 5 pending per user; 6th returns 503. Client disconnects while queued are skipped.</div>
+          <div class="item-tags"><span class="tag green">Reliability</span><span class="tag blue">Backend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.1 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.1</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Session Isolation Fix</div>
+          <div class="item-desc">Signing out fully clears all in-memory state. Login modal cannot be dismissed when authentication is required. Session expiry (401) triggers the same full wipe as manual logout.</div>
+          <div class="item-tags"><span class="tag red">Bug fix</span><span class="tag zinc">Security</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.1.0 -->
+    <div class="version-group">
+      <div class="version-label">v1.1.0</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Multi-User Support</div>
+          <div class="item-desc">
+            Per-user accounts with isolated config, conversations, and projects. Username/password login, session-based auth (httpOnly cookies),
+            admin user management (CRUD, password reset, registration toggle), per-user provider config and category mappings,
+            change password, user menu in header. Existing single-user installs migrate automatically.
+          </div>
+          <div class="item-tags"><span class="tag green">New feature</span><span class="tag blue">Backend</span><span class="tag blue">Frontend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.0.x -->
+    <div class="version-group">
+      <div class="version-label">v1.0.6 – v1.0.9</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Conversation Pagination · Router Caching · FAST + SECURITY Categories · Streaming Buffer · Projects · Error Boundaries</div>
+          <div class="item-desc">
+            Paginated sidebar (50/page, lazy-loaded messages). In-memory LRU router cache (100 entries, 5 min TTL, off by default).
+            FAST category for trivial one-liners; SECURITY category for vulnerability assessment, CTF, pentesting.
+            Streaming chunk buffer fixes silent token loss on split TCP reads. Router cache toggle persistence fix. Full conversation export endpoint.
+            Projects: named folder organisation, inline rename, right-click assign, delete with keep/remove option.
+            React error boundaries per tab.
+          </div>
+          <div class="item-tags"><span class="tag green">New features</span><span class="tag red">Bug fixes</span><span class="tag blue">Backend</span><span class="tag blue">Frontend</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.0.0 – v1.0.5 -->
+    <div class="version-group">
+      <div class="version-label">v1.0.0 – v1.0.5</div>
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">Initial Release — Core Orchestration</div>
+          <div class="item-desc">
+            Intelligent intent routing (8 categories), hybrid local/cloud orchestration, MIME-based attachment routing,
+            vision + document support, model fallback chain, model loading retry, stop generation button,
+            Ollama auto-detection, SQLite storage (WAL mode), AES-256-GCM encryption,
+            same-origin CORS, SSRF protection, httpOnly session cookies, KaTeX LaTeX rendering,
+            Pino structured logging, Zod input validation on all endpoints, rate limiting, Vitest test suite,
+            provider-agnostic (no hardcoded cloud defaults), Docker + Unraid community template.
+          </div>
+          <div class="item-tags"><span class="tag green">Initial release</span><span class="tag blue">Backend</span><span class="tag blue">Frontend</span><span class="tag zinc">Docker</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+</body>
+</html>

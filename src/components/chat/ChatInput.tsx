@@ -16,6 +16,7 @@ interface ChatInputProps {
   webSearchEnabled: boolean;
   onToggleWebSearch: () => void;
   searxngConfigured: boolean;
+  enabledMcpServerCount?: number;
   showThinkingEnabled: boolean;
   onToggleThinking: () => void;
 }
@@ -23,9 +24,12 @@ interface ChatInputProps {
 export default function ChatInput({
   input, setInput, attachments, removeAttachment,
   isLoading, fileInputRef, handleFileSelect, handleSend, handleStop,
-  webSearchEnabled, onToggleWebSearch, searxngConfigured,
+  webSearchEnabled, onToggleWebSearch, searxngConfigured, enabledMcpServerCount = 0,
   showThinkingEnabled, onToggleThinking,
 }: ChatInputProps) {
+  const globeTooltipBase = enabledMcpServerCount > 0
+    ? `Web search + URL fetch + ${enabledMcpServerCount} MCP server${enabledMcpServerCount === 1 ? '' : 's'}`
+    : 'Web search + URL fetch';
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const adjustHeight = useCallback(() => {
@@ -97,7 +101,7 @@ export default function ChatInput({
             {searxngConfigured && (
               <button
                 onClick={onToggleWebSearch}
-                title={webSearchEnabled ? 'Web search on — click to disable' : 'Enable web search for this message'}
+                title={webSearchEnabled ? `${globeTooltipBase} — on, click to disable` : `${globeTooltipBase} — click to enable`}
                 className={`p-3 transition-colors ${webSearchEnabled ? 'text-blue-400' : 'text-zinc-500 hover:text-blue-400'}`}
               >
                 <Globe className="w-4 h-4" />

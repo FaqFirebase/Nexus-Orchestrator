@@ -17,12 +17,6 @@ interface ProviderConfigProps {
   logout: () => void;
 }
 
-const MASKED_PATTERN = /\.\.\.|^\*{4}$/;
-
-function isMasked(key: string): boolean {
-  return MASKED_PATTERN.test(key);
-}
-
 function SectionHeader({
   visible,
   onToggle,
@@ -72,7 +66,7 @@ function SaveFeedback({ saveStatus, saveError }: { saveStatus: ProviderConfigPro
             </span>
           </div>
           {saveStatus === 'error' && saveError && (
-            <span className="text-[8px] font-mono text-red-500/80 max-w-[150px] truncate">{saveError}</span>
+            <span className="text-[8px] font-mono text-red-500/80 max-w-[220px] text-right break-words">{saveError}</span>
           )}
         </motion.div>
       )}
@@ -175,7 +169,7 @@ export default function ProviderConfig({
                       <div className="relative">
                         <input
                           type={showApiKey ? "text" : "password"}
-                          value={isMasked(provider.key) ? provider.key : provider.key}
+                          value={provider.key}
                           onChange={(e) => updateProvider(index, 'key', e.target.value)}
                           className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 pr-10 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
                           placeholder="Leave blank for Ollama"

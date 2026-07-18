@@ -193,10 +193,6 @@ export function deleteUser(id: string): boolean {
   return result.changes > 0;
 }
 
-export function getUserCount(): number {
-  return (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count;
-}
-
 // --- Admin Settings ---
 
 export function getAdminSettings(): any {

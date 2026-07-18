@@ -164,6 +164,21 @@
     .badge.red    { color: #f87171; border-color: #f8717140; background: #2d0a0a20; }
     .badge.purple { color: #a78bfa; border-color: #a78bfa40; background: #1e1b4b20; }
 
+    /* Nav */
+    .nav {
+      max-width: 1100px; margin: 0 auto 40px;
+      display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid #27272a; padding-bottom: 16px;
+    }
+    .nav-brand { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #52525b; flex: 1; }
+    .nav-link {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 5px 12px; border-radius: 6px; text-decoration: none;
+      border: 1px solid #27272a; color: #71717a; transition: color 0.15s, border-color 0.15s;
+    }
+    .nav-link:hover { color: #e4e4e7; border-color: #52525b; }
+    .nav-link.active { color: #a78bfa; border-color: #a78bfa40; background: #1e1b4b20; }
+
     /* connector arrows between sections */
     .connector {
       text-align: center; color: #3f3f46; font-size: 0.7rem;
@@ -174,8 +189,16 @@
 </head>
 <body>
 
+<div class="nav">
+  <span class="nav-brand">Nexus Orchestrator · Docs</span>
+  <a class="nav-link active" href="architecture.html">Architecture</a>
+  <a class="nav-link" href="roadmap.html">Roadmap</a>
+  <a class="nav-link" href="changelog.html">Changelog</a>
+  <a class="nav-link" href="https://github.com/FaqFirebase/Nexus-Orchestrator" target="_blank" rel="noopener">GitHub ↗</a>
+</div>
+
 <h1>Nexus Orchestrator</h1>
-<p class="subtitle">Architecture Overview · Express + React · v1.1.9 · Port 3000</p>
+<p class="subtitle">Architecture Overview · Express + React · v1.2.0 · Port 3000</p>
 
 <div class="diagram">
 
