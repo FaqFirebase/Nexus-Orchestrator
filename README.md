@@ -14,7 +14,8 @@ Nexus is more than a chat interface — it's an **orchestration layer** for your
 - **Hybrid Orchestration** — Mix local and cloud models per category. Switch seamlessly without changing your workflow.
 - **Multi-User Support** — Multiple users with per-user provider config, category mappings, conversations, and projects. Admin manages users from the System tab.
 - **Vision & Document Support** — Upload images and documents directly in the chat. Vision models receive them in the correct format automatically.
-- **Web Search & URL Fetch via Tool Calling** — Connect a self-hosted SearXNG instance and the LLM gets two tools: `web_search` to query the web, and `fetch_url` to read a specific page's content. The model can chain them (search → fetch a result → answer) up to 4 tool calls per turn. Enable globally or per-chat with a single click.
+- **MCP Server Consumption** — Add external MCP servers in the Models tab and their tools become available to the LLM during chat alongside `web_search` and `fetch_url`. Tools are namespaced as `<server>__<tool>`. Per-user config with bearer token and custom header auth. SSRF-protected. Up to 10 servers per user.
+- **Web Search & URL Fetch via Tool Calling** — Connect a self-hosted SearXNG instance and the LLM gets two tools: `web_search` to query the web, and `fetch_url` to read a specific page's content. The model can chain them (search → fetch a result → answer) up to 8 tool calls per turn. Enable globally or per-chat with a single click.
 - **Thinking Toggle** — For Ollama models that support it, Nexus sends `think: true` via the native API and streams reasoning live as it generates. Models like DeepSeek R1 that natively emit `<think>` tags are also supported. Reasoning appears in a collapsible purple section above the response. Toggle globally (System tab) or per-chat (Brain icon). Models that don't support thinking fall back silently.
 - **Privacy First** — Point the router at a local Ollama model and your prompts never leave your network.
 - **Structured Logging** — JSON logs in production (pino), pretty-printed in dev. Control verbosity with `LOG_LEVEL`.
@@ -201,7 +202,7 @@ Connect a self-hosted SearXNG instance to give your LLMs tool-calling access to 
 - **`web_search`** — Query SearXNG for current information. Returns title, URL, and snippet for the top results.
 - **`fetch_url`** — Fetch a specific URL and return its page content as plain text. Useful for reading details beyond the search snippet, or fetching a URL the user pastes directly.
 
-The model decides when and how to use them — it can call `web_search` first, pick a result, then call `fetch_url` on it, then answer. Up to **4 tool calls per chat turn** before Nexus forces a final answer.
+The model decides when and how to use them — it can call `web_search` first, pick a result, then call `fetch_url` on it, then answer. Up to **8 tool calls per chat turn** before Nexus forces a final answer (shared with MCP tool calls).
 
 **Configuration:**
 - **SearXNG URL** — The address of your SearXNG instance (e.g. `http://192.168.1.50:8080`). Must be accessible from the Nexus container. The `fetch_url` tool is gated by this setting too — if SearXNG isn't configured, the globe toggle does nothing.
@@ -278,7 +279,7 @@ docker build -t nexus-orchestrator:latest .
 
 ### Planned
 
-- [ ] **MCP support** — Nexus consumes MCP servers as tools and/or exposes itself as an MCP server for Claude Code and other clients
+- [ ] **MCP support (Direction B)** — Nexus exposes itself as an MCP server for Claude Code and other clients. Direction A (consuming MCP servers as tools) shipped in v1.2.0.
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
 
 See **[roadmap.html](roadmap.html)** for the full visual roadmap (planned items + complete release history).
@@ -287,7 +288,7 @@ See **[roadmap.html](roadmap.html)** for the full visual roadmap (planned items 
 
 ## Changelog
 
-**v1.2.0** *(dev)* — URL fetch tool (`fetch_url`) alongside web search — LLM can chain search → fetch → answer in up to 4 tool calls per turn. Tool-calling path refactored to multi-turn agentic loop. Thinking toggle for reasoning models (DeepSeek R1, QwQ). Code block horizontal scroll. Provider URL canonicalization fix. CVE patches (`express-rate-limit`, `postcss`). Dead code cleanup.
+**v1.2.0** *(dev)* — MCP server consumption: add external MCP servers in the Models tab as LLM tools (`<server>__<tool>` prefix, per-user config, bearer auth, 5-min TTL cache, SSRF guardrails). Agentic loop cap raised 4 → 8. URL fetch tool (`fetch_url`) alongside web search — LLM can chain search → fetch → answer. Tool-calling path refactored to multi-turn agentic loop. Thinking toggle for reasoning models (DeepSeek R1, QwQ). Code block horizontal scroll. Provider URL canonicalization fix. CVE patches (`express-rate-limit`, `postcss`). Dead code cleanup.
 
 **v1.1.9** — Thinking toggle for reasoning models (DeepSeek R1, QwQ, etc.). Client-side `<think>` tag parsing with collapsible display above responses. Global default (System tab) and per-chat override (Brain icon). Docker image reduced from 127 MB to ~86 MB via dependency cleanup and build-stage pruning. Added CONTRIBUTING.md, SECURITY.md, and GitHub issue templates.
 

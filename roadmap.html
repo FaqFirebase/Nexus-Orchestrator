@@ -119,17 +119,14 @@
     <div class="item">
       <div class="item-icon pending">#</div>
       <div class="item-body">
-        <div class="item-title">MCP Support</div>
+        <div class="item-title">Nexus as an MCP Server</div>
         <div class="item-desc">
-          Two directions: <strong>(1)</strong> Nexus consumes MCP servers as tools available to the LLM during chat —
-          the user points Nexus at an MCP endpoint and those tools appear alongside <code>web_search</code> / <code>fetch_url</code>.
-          <strong>(2)</strong> Nexus exposes itself as an MCP server so Claude Code and other MCP clients can route
-          requests through Nexus as a model provider.
+          Expose Nexus as an MCP server so Claude Code and other MCP clients can route requests through it as a model provider —
+          using Nexus's intent router and model pool from any MCP-compatible agent.
         </div>
         <div class="item-tags">
           <span class="tag purple">Brainstorm needed</span>
           <span class="tag blue">Backend</span>
-          <span class="tag blue">Frontend</span>
         </div>
       </div>
     </div>
@@ -278,6 +275,25 @@
           <div class="item-tags">
             <span class="tag red">Security</span>
             <span class="tag zinc">Dependencies</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon done">✓</div>
+        <div class="item-body">
+          <div class="item-title">MCP Tool Support</div>
+          <div class="item-desc">
+            External MCP servers are now available as LLM tools alongside <code>web_search</code> and <code>fetch_url</code>.
+            Configured per user in the Models tab (up to 10 servers). Tools prefixed <code>&lt;server&gt;__&lt;tool&gt;</code>.
+            5-minute TTL cache with manual refresh. Agentic loop cap raised 4 → 8.
+            SSRF blocking, header validation, bearer token redaction. 32 tests.
+          </div>
+          <div class="item-tags">
+            <span class="tag green">New feature</span>
+            <span class="tag blue">Backend</span>
+            <span class="tag blue">Frontend</span>
+            <span class="tag red">Security</span>
           </div>
         </div>
       </div>

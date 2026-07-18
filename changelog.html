@@ -234,6 +234,35 @@
           </div>
         </div>
       </div>
+
+      <div class="item">
+        <div class="item-icon">✓</div>
+        <div class="item-body">
+          <div class="item-title">MCP Tool Support</div>
+          <div class="item-desc">
+            Nexus can now consume external MCP servers as LLM tools alongside <code>web_search</code> and <code>fetch_url</code>.
+            Configure up to 10 MCP servers per user in the <strong>Models tab</strong>: name, URL, bearer token, and custom headers.
+            Each server's tools are prefixed as <code>&lt;serverName&gt;__&lt;toolName&gt;</code> so the LLM can target any tool unambiguously.
+            Tool list is cached per user per server with a <strong>5-minute TTL</strong>; a refresh button invalidates the cache immediately.
+            The agentic loop iteration cap was raised from <strong>4 → 8</strong> to support multi-step MCP workflows.
+            Mid-response status shows <strong>Searching…</strong>; completed messages show an MCP error badge (red) on failure.
+            The Sources panel now lists every MCP tool call with server name, tool name, arguments, error kind, and duration.
+            <strong>Security guardrails:</strong> SSRF blocked (cloud metadata hosts, IPv6 loopback); header name blocklist enforced;
+            CR/LF and non-printable header value characters rejected; cleartext HTTP warning shown for non-LAN MCP hosts;
+            bearer tokens redacted from structured logs.
+            New standalone <code>mcpClient.ts</code> module — testable without booting the HTTP server.
+            28 unit tests + 4 opt-in integration tests (run with <code>RUN_INTEGRATION_TESTS=1</code>).
+            Uses <code>@modelcontextprotocol/sdk@1.29.0</code> with Streamable HTTP transport.
+          </div>
+          <div class="item-tags">
+            <span class="tag green">New feature</span>
+            <span class="tag blue">Backend</span>
+            <span class="tag blue">Frontend</span>
+            <span class="tag red">Security</span>
+            <span class="tag zinc">32 tests</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- v1.1.9 -->
