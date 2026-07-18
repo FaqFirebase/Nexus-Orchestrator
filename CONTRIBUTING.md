@@ -78,7 +78,7 @@ Subject: imperative, ≤50 characters, no trailing period.
 
 ## What to Work On
 
-Check the [open issues](https://github.com/FaqFirebase/Nexus-Orchestrator/issues) for bugs and feature requests. The [roadmap](roadmap.html) lists planned work.
+Check the [open issues](https://github.com/FaqFirebase/Nexus-Orchestrator/issues) for bugs and feature requests. The [roadmap](docs/roadmap.html) lists planned work.
 
 If you want to add something not already tracked, open an issue first to discuss it before writing code.
 

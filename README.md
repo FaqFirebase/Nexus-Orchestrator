@@ -282,7 +282,7 @@ docker build -t nexus-orchestrator:latest .
 - [ ] **MCP support (Direction B)** — Nexus exposes itself as an MCP server for Claude Code and other clients. Direction A (consuming MCP servers as tools) shipped in v1.2.0.
 - [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
 
-See **[roadmap.html](roadmap.html)** for the full visual roadmap (planned items + complete release history).
+See **[roadmap.html](docs/roadmap.html)** for the full visual roadmap (planned items + complete release history).
 
 ---
 
@@ -294,4 +294,4 @@ See **[roadmap.html](roadmap.html)** for the full visual roadmap (planned items 
 
 **v1.1.8** — Copy button on code blocks (hover to reveal, 2-second "Copied" feedback). FAST category routing tightened — now restricted to greetings and micro-interactions only; factual questions route to GENERAL. Security hardening: CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
 
-See [changelog.html](changelog.html) for the full release history.
+See [changelog.html](docs/changelog.html) for the full release history.
