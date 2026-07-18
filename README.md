@@ -287,7 +287,7 @@ See **[roadmap.html](docs/roadmap.html)** for the full visual roadmap (planned i
 
 ## Changelog
 
-**v1.2.0** *(dev)* — MCP server consumption: add external MCP servers in the Models tab as LLM tools (`<server>__<tool>` prefix, per-user config, bearer auth, 5-min TTL cache, SSRF guardrails). Agentic loop cap raised 4 → 8. URL fetch tool (`fetch_url`) alongside web search — LLM can chain search → fetch → answer. Tool-calling path refactored to multi-turn agentic loop. Thinking toggle for reasoning models (DeepSeek R1, QwQ). Code block horizontal scroll. Provider URL canonicalization fix. CVE patches (`express-rate-limit`, `postcss`). Dead code cleanup.
+**v1.2.0** — MCP server consumption: add external MCP servers in the Models tab as LLM tools (`<server>__<tool>` prefix, per-user config, bearer auth, 5-min TTL cache, SSRF guardrails). Agentic loop cap raised 4 → 8. URL fetch tool (`fetch_url`) alongside web search — LLM can chain search → fetch → answer. Tool-calling path refactored to multi-turn agentic loop. Thinking toggle for reasoning models (DeepSeek R1, QwQ). Code block horizontal scroll. Provider URL canonicalization fix. CVE patches (`express-rate-limit`, `postcss`, `hono`, `qs`, `vite`, `esbuild`, `@babel/core`). Dead code cleanup. Docs moved into `docs/`; chat messages centered.
 
 **v1.1.9** — Thinking toggle for reasoning models (DeepSeek R1, QwQ, etc.). Client-side `<think>` tag parsing with collapsible display above responses. Global default (System tab) and per-chat override (Brain icon). Docker image reduced from 127 MB to ~86 MB via dependency cleanup and build-stage pruning. Added CONTRIBUTING.md, SECURITY.md, and GitHub issue templates.
 

@@ -125,7 +125,25 @@
     <div class="version-group">
       <div class="version-label">
         v1.2.0
-        <span class="version-badge dev">dev branch</span>
+        <span class="version-badge live">live</span>
+      </div>
+
+      <div class="item">
+        <div class="item-icon">✓</div>
+        <div class="item-body">
+          <div class="item-title">Release Prep &amp; Maintenance</div>
+          <div class="item-desc">
+            Dependency security patches: <code>npm audit fix</code> plus <code>tsx</code> 4.21.0 → 4.23.1 (pulls <code>esbuild</code> 0.28.1),
+            clearing 7 advisories (<code>hono</code>, <code>qs</code>, <code>vite</code>, <code>esbuild</code>, <code>@babel/core</code>) — <code>npm audit</code> reports 0 vulnerabilities.
+            Chat messages now render in a centered <code>max-w-4xl</code> column. HTML docs (architecture/changelog/roadmap) moved into <code>docs/</code>.
+            Roadmap corrected: Ollama backend abort is an upstream limitation (<code>ollama#2876</code>), not a Nexus bug; Nexus-as-MCP-server direction dropped.
+          </div>
+          <div class="item-tags">
+            <span class="tag red">Security</span>
+            <span class="tag blue">Frontend</span>
+            <span class="tag zinc">Docs</span>
+          </div>
+        </div>
       </div>
 
       <div class="item">
@@ -133,8 +151,8 @@
         <div class="item-body">
           <div class="item-title">URL Fetch Tool</div>
           <div class="item-desc">
-            <code>fetch_url</code> tool added alongside <code>web_search</code>. The LLM can now chain search → fetch → answer in up to 4 tool calls per turn.
-            Tool-calling path refactored from a single-call branch to a multi-turn agentic loop (<code>MAX_TOOL_ITERATIONS=4</code>).
+            <code>fetch_url</code> tool added alongside <code>web_search</code>. The LLM can now chain search → fetch → answer in up to 8 tool calls per turn.
+            Tool-calling path refactored from a single-call branch to a multi-turn agentic loop (<code>MAX_TOOL_ITERATIONS=8</code>).
             Fetch behavior: HTML stripped to plain text, content capped at 50 KB, 15-second timeout, SSRF-protected (blocks cloud metadata endpoints; allows LAN).
             Shares the globe toggle. Sources panel covers both search results and fetched pages.
           </div>
