@@ -48,8 +48,9 @@ export default function ChatTab({
     <div className="flex-1 flex flex-col min-h-0 relative">
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto space-y-12 pb-32 scroll-smooth"
+        className="flex-1 overflow-y-auto pb-32 scroll-smooth"
       >
+        <div className="max-w-4xl mx-auto px-6 space-y-12">
         {/* Local IP Warning Banner */}
         {connectionStatus.local &&
          (connectionStatus.local.includes('192.168.') || connectionStatus.local.includes('10.') || connectionStatus.local.includes('172.') || connectionStatus.local.includes('localhost')) &&
@@ -108,6 +109,7 @@ export default function ChatTab({
         </AnimatePresence>
 
         {isLoading && <RoutingStatus routingStep={routingStep} />}
+        </div>
       </div>
 
       <ChatInput
