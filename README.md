@@ -280,7 +280,7 @@ docker build -t nexus-orchestrator:latest .
 ### Planned
 
 - [ ] **MCP support (Direction B)** — Nexus exposes itself as an MCP server for Claude Code and other clients. Direction A (consuming MCP servers as tools) shipped in v1.2.0.
-- [ ] **Ollama backend abort** — Investigate stopping Ollama generation server-side when client disconnects (current TCP disconnect does not propagate through Docker networking)
+- [ ] **Ollama backend abort** — Stop Ollama generation server-side on client disconnect. Not a Nexus bug: Nexus already closes the upstream connection immediately; the runner keeps going because Ollama/llama.cpp doesn't check for a closed connection mid-generation ([ollama#2876](https://github.com/ollama/ollama/issues/2876)). Resolves upstream.
 
 See **[roadmap.html](docs/roadmap.html)** for the full visual roadmap (planned items + complete release history).
 

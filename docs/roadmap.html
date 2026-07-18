@@ -136,12 +136,16 @@
       <div class="item-body">
         <div class="item-title">Ollama Backend Abort</div>
         <div class="item-desc">
-          Investigate stopping Ollama generation server-side when the client disconnects.
-          TCP disconnect does not propagate through Docker networking to the llama runner — same known limitation as Open WebUI.
-          UI stop already works; only the backend continues generating after cancellation.
+          Stopping Ollama generation server-side when the client disconnects.
+          <strong>Not a Nexus bug:</strong> on client disconnect Nexus already closes the upstream connection immediately
+          (<code>reader.cancel()</code> tears down the socket mid-stream — verified). The runner keeps generating because
+          Ollama / llama.cpp does not check for a closed connection between tokens
+          (<a href="https://github.com/ollama/ollama/issues/2876" target="_blank" rel="noopener">ollama#2876</a>,
+          <a href="https://github.com/ggml-org/llama.cpp/issues/24496" target="_blank" rel="noopener">llama.cpp#24496</a>).
+          No Nexus-side fix is possible; it resolves automatically once upstream honors the closed connection.
         </div>
         <div class="item-tags">
-          <span class="tag amber">Known limitation</span>
+          <span class="tag amber">Blocked — upstream Ollama</span>
           <span class="tag blue">Backend</span>
         </div>
       </div>
