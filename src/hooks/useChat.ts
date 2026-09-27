@@ -65,61 +65,21 @@ export function useChat(deps: UseChatDeps) {
   }, []);
 
   const routeIntent = useCallback(async (prompt: string, hasAttachments: boolean): Promise<RoutingDecision> => {
-    const modelList = localModels.map(m => m.name).join(', ');
-
-    const categoriesPrompt = Object.entries(config.categories).map(([cat, cfg]) => {
-      const modelNames = cfg.models.map((m: any) => (typeof m === 'string' ? m : m.name)).join(', ');
-      return `- ${cat}: ${modelNames} (${cfg.provider})`;
-    }).join('\n');
-
-    const systemPrompt = `Analyze this user prompt and decide which model category is best.
-      Prompt: "${prompt}"
-      Has Attachments: ${hasAttachments}
-
-      Available Models on User's System: ${modelList || "llama3.1, codellama, llava, mistral"}
-
-      Category Definitions (use these to decide):
-      - CODING: Writing, debugging, reviewing, or explaining code. Any request involving programming languages, scripts, algorithms, or software development.
-      - REASONING: Complex analysis, comparisons, multi-step logic, math, science explanations, strategic thinking, or anything requiring deep thought.
-      - CREATIVE: Writing stories, poems, marketing copy, brainstorming, humor, or any open-ended creative task.
-      - VISION: ONLY when the user has attached an image and wants it analyzed, described, or interpreted. Requires Has Attachments = true with an image.
-      - DOCUMENT: ONLY when the user has attached a document (PDF, text file) and wants it summarized, analyzed, or queried. Requires Has Attachments = true.
-      - FAST: ONLY for pure micro-interactions with no knowledge retrieval — greetings ("hi", "hello", "thanks"), single-word acknowledgements, or arithmetic so trivial it needs no explanation ("what is 2+2"). If the prompt asks ANY question about the world, a concept, a fact, a person, a technology, or requires more than one sentence to answer properly, do NOT use FAST.
-      - SECURITY: Security analysis, vulnerability assessment, threat modeling, CTF challenges, penetration testing, malware analysis, or cybersecurity topics.
-      - GENERAL: The default for all conversational queries, factual questions, explanations, summaries, and anything that does not clearly fit a more specific category above. When in doubt, use GENERAL.
-
-      Configured Categories and Models:
-      ${categoriesPrompt}
-
-      Rules:
-      - Only select VISION or DOCUMENT if Has Attachments is true.
-      - Prefer REASONING over GENERAL for questions that require explanation, comparison, or analysis.
-      - Prefer CODING over GENERAL for anything code-related, even if the question is simple.
-      - Prefer SECURITY over GENERAL for anything security/hacking/CTF related.
-      - Default to GENERAL over FAST. Only use FAST for greetings, one-word replies, or arithmetic with no explanation needed.
-      - If the answer requires retrieving, explaining, or describing any fact or concept, use GENERAL not FAST.
-      - Only use categories that appear in the configured list above.
-
-      Return ONLY a JSON object with the following structure:
-      {
-        "category": "ONE_OF_THE_CATEGORIES",
-        "model": "specific_model_name",
-        "provider": "local" | "cloud",
-        "reasoning": "short explanation",
-        "confidence": 0.0-1.0
-      }`;
-
     const res = await fetch(`${window.location.origin}/api/router`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: systemPrompt })
+      body: JSON.stringify({
+        prompt,
+        hasAttachments,
+        availableModels: localModels.map(m => m.name),
+      })
     });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || "Router failed");
     }
     return await res.json();
-  }, [config, localModels]);
+  }, [localModels]);
 
   const handleSend = useCallback(async () => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return;

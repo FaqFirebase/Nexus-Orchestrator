@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ROUTER_ENGINES, DEFAULT_ROUTER_ENGINE } from './router.js';
 
 // Auth
 export const loginSchema = z.object({
@@ -92,6 +93,8 @@ export const configSchema = z.object({
     model: z.string().optional().default(''),
     url: z.string().optional().default(''),
     key: z.string().optional().default(''),
+    engine: z.enum(ROUTER_ENGINES).optional().default(DEFAULT_ROUTER_ENGINE),
+    jevKey: z.string().optional().default(''),
   }).optional(),
   categories: z.record(z.string(), categorySchema).optional(),
   routerCacheEnabled: z.boolean().optional(),
@@ -104,8 +107,12 @@ export const configSchema = z.object({
 });
 
 // Router
+const MAX_AVAILABLE_MODELS = 500;
+
 export const routerSchema = z.object({
   prompt: z.string().min(1, 'Prompt is required'),
+  hasAttachments: z.boolean().optional().default(false),
+  availableModels: z.array(z.string()).max(MAX_AVAILABLE_MODELS).optional().default([]),
 });
 
 // Chat

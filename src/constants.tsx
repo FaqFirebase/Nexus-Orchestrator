@@ -45,7 +45,9 @@ export const DEFAULT_CONFIG: NexusConfig = {
     provider: 'openai' as 'openai',
     model: '',
     url: '',
-    key: ''
+    key: '',
+    engine: 'llm',
+    jevKey: '',
   },
   searxng: {
     url: '',

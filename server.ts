@@ -15,6 +15,7 @@ import {
 } from "./db.js";
 import { hashPassword, verifyPassword } from "./crypto.js";
 import { fetchUrlAndStrip } from "./fetchUrl.js";
+import { routeIntent, DEFAULT_ROUTER_ENGINE, type RouteContext, type RouteRequest } from "./router.js";
 import {
   listMcpTools,
   callMcpTool,
@@ -110,7 +111,9 @@ const DEFAULT_CONFIG = {
     provider: 'openai' as 'openai',
     model: process.env.ROUTER_MODEL || '',
     url: process.env.ROUTER_URL || '',
-    key: process.env.ROUTER_KEY || ''
+    key: process.env.ROUTER_KEY || '',
+    engine: process.env.ROUTER_ENGINE === 'jev' ? 'jev' : DEFAULT_ROUTER_ENGINE,
+    jevKey: '',
   },
   categories: {
     CODING: { models: [], provider: 'local' },
@@ -214,10 +217,19 @@ function validateUrl(url: string): { valid: boolean; reason?: string } {
 }
 
 // Helper to mask API keys
+const MASKED_SHORT_KEY = "****";
+const MASK_SEPARATOR = "...";
+const MASK_VISIBLE_CHARS = 4;
+
 function maskKey(key: string | undefined): string {
   if (!key) return "";
-  if (key.length <= 8) return "****";
-  return `${key.substring(0, 4)}...${key.substring(key.length - 4)}`;
+  if (key.length <= MASK_VISIBLE_CHARS * 2) return MASKED_SHORT_KEY;
+  return `${key.substring(0, MASK_VISIBLE_CHARS)}${MASK_SEPARATOR}${key.substring(key.length - MASK_VISIBLE_CHARS)}`;
+}
+
+/** True when a client sent back a value produced by maskKey instead of a real key. */
+function isMaskedKey(value: unknown): boolean {
+  return typeof value === 'string' && (value.includes(MASK_SEPARATOR) || value === MASKED_SHORT_KEY);
 }
 
 // Rate limiters
@@ -706,7 +718,9 @@ async function startServer() {
         cloudKey: config.cloudKey ? maskKey(config.cloudKey) : "",
         router: {
           ...config.router,
-          key: config.router?.key ? maskKey(config.router.key) : ""
+          engine: config.router?.engine ?? DEFAULT_ROUTER_ENGINE,
+          key: config.router?.key ? maskKey(config.router.key) : "",
+          jevKey: config.router?.jevKey ? maskKey(config.router.jevKey) : ""
         },
         localProviders: (config.localProviders || []).map((p: any) => ({
           ...p,
@@ -757,25 +771,14 @@ async function startServer() {
       // Read current config to preserve masked keys
       const currentConfig = getUserConfig(req.userId!);
 
-      // If the incoming key is masked, use the current key
-      if (newConfig.localKey && typeof newConfig.localKey === 'string' && (newConfig.localKey.includes("...") || newConfig.localKey === "****")) {
-        newConfig.localKey = currentConfig.localKey || "";
-      }
-      if (newConfig.cloudKey && typeof newConfig.cloudKey === 'string' && (newConfig.cloudKey.includes("...") || newConfig.cloudKey === "****")) {
-        newConfig.cloudKey = currentConfig.cloudKey || "";
-      }
-      if (newConfig.router && newConfig.router.key && typeof newConfig.router.key === 'string' && (newConfig.router.key.includes("...") || newConfig.router.key === "****")) {
-        newConfig.router.key = currentConfig.router?.key || "";
-      }
-      // Restore masked keys in localProviders
-      if (newConfig.localProviders) {
-        for (let i = 0; i < newConfig.localProviders.length; i++) {
-          const incomingKey = newConfig.localProviders[i].key;
-          if (incomingKey && (incomingKey.includes("...") || incomingKey === "****")) {
-            newConfig.localProviders[i].key = currentConfig.localProviders?.[i]?.key || '';
-          }
-        }
-      }
+      // If an incoming key is masked, keep the stored key
+      if (isMaskedKey(newConfig.localKey)) newConfig.localKey = currentConfig.localKey || "";
+      if (isMaskedKey(newConfig.cloudKey)) newConfig.cloudKey = currentConfig.cloudKey || "";
+      if (isMaskedKey(newConfig.router?.key)) newConfig.router.key = currentConfig.router?.key || "";
+      if (isMaskedKey(newConfig.router?.jevKey)) newConfig.router.jevKey = currentConfig.router?.jevKey || "";
+      (newConfig.localProviders || []).forEach((provider: any, i: number) => {
+        if (isMaskedKey(provider.key)) provider.key = currentConfig.localProviders?.[i]?.key || '';
+      });
 
       // Canonicalize category model providerUrls against the current provider list.
       // CategoryModel stores { name, providerUrl } at assignment time — if a provider URL is
@@ -1044,119 +1047,32 @@ async function startServer() {
     }
   });
 
-  // Router Proxy Endpoint (uses requesting user's config)
+  // Router Endpoint (uses requesting user's config)
   app.post("/api/router", authMiddleware, apiLimiter, validate(routerSchema), async (req, res) => {
-    const { prompt } = req.body;
+    const request: RouteRequest = req.body;
     try {
       const config = getUserConfig(req.userId!);
+      const context: RouteContext = {
+        router: config.router,
+        categories: config.categories,
+        localProvider: getFirstLocalProvider(config),
+        defaultJevKey: process.env.TYPESAFE_API_KEY || '',
+      };
+      const cacheInput = JSON.stringify({ request, engine: context.router.engine, categories: context.categories });
 
-      // Check cache if enabled
       if (config.routerCacheEnabled) {
-        const cached = getCachedRoute(req.userId!, prompt);
+        const cached = getCachedRoute(req.userId!, cacheInput);
         if (cached) {
           log.info({ category: cached.category, model: cached.model }, 'Router cache hit');
           return res.json({ ...cached, cached: true });
         }
       }
-      const { router } = config;
 
-      // Determine URL and Key for routing
-      let url = router.url;
-      let key = router.key;
-
-      // Fallback logic: if no custom router URL, always use first local provider
-      if (!url) {
-        const first = getFirstLocalProvider(config);
-        url = first.url;
-        key = router.key || first.key;
+      const decision = await routeIntent(request, context);
+      if (config.routerCacheEnabled) {
+        setCachedRoute(req.userId!, cacheInput, decision);
       }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
-
-      try {
-        let fullUrl = url.replace(/\/$/, "");
-        // If the user provided a full path, don't append /v1/chat/completions
-        if (!fullUrl.endsWith('/chat/completions')) {
-          if (!fullUrl.endsWith('/v1')) {
-            fullUrl += '/v1';
-          }
-          fullUrl += '/chat/completions';
-        }
-
-        log.info({ url: fullUrl, model: router.model }, 'Router routing request');
-
-        const response = await fetch(fullUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': key ? `Bearer ${key}` : ''
-          },
-          body: JSON.stringify({
-            model: router.model,
-            messages: [
-              { role: 'system', content: 'You are a routing orchestrator. You must respond with valid JSON ONLY. Structure: {"category": "...", "model": "...", "provider": "...", "reasoning": "...", "confidence": 0.0-1.0}' },
-              { role: 'user', content: prompt }
-            ],
-          }),
-          signal: controller.signal
-        });
-
-        clearTimeout(timeout);
-
-        if (!response.ok) {
-          const errText = await response.text();
-          const statusInfo = `${response.status} ${response.statusText}`;
-
-          let errorMessage = `Router provider error (${statusInfo}): ${errText || 'No error body'}`;
-
-          if (response.status === 404) {
-            errorMessage = `Router Model Not Found (404). Ensure the model ID "${router.model}" is correct and available at ${fullUrl}.`;
-          } else if (response.status === 400) {
-            errorMessage = `Router Invalid Request (400). The model ID "${router.model}" might be incorrect. For OpenRouter, use formats like "google/gemini-flash-1.5". Details: ${errText}`;
-          } else if (response.status === 401 || response.status === 403) {
-            errorMessage = `Router Authentication Error (${response.status}). Check your API Key for the router.`;
-          } else if (response.status === 429) {
-            errorMessage = `Router Quota Exceeded (429). Your OpenAI/Provider quota has been reached. Consider switching to your local "nexus.model-router" to avoid costs and limits.`;
-          }
-
-          throw new Error(errorMessage);
-        }
-
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-        const usage = data.usage;
-
-        try {
-          // Attempt to parse the content as JSON
-          // Sometimes models wrap JSON in markdown blocks
-          const jsonStr = content.replace(/```json\n?|```/g, '').trim();
-          const parsed = JSON.parse(jsonStr);
-
-          // Add router metadata to the response
-          parsed.routerModel = router.model;
-          if (usage) {
-            parsed.usage = {
-              prompt_tokens: usage.prompt_tokens,
-              completion_tokens: usage.completion_tokens,
-              total_tokens: usage.total_tokens
-            };
-          }
-
-          if (config.routerCacheEnabled) {
-            setCachedRoute(req.userId!, prompt, parsed);
-          }
-          res.json(parsed);
-        } catch (parseErr) {
-          log.error({ content }, 'Router returned invalid JSON');
-          throw new Error("Router model returned invalid JSON format. Ensure the model is capable of JSON output.");
-        }
-      } catch (fetchErr: any) {
-        if (fetchErr.name === 'AbortError') {
-          throw new Error("Router request timed out after 30 seconds.");
-        }
-        throw fetchErr;
-      }
+      res.json(decision);
     } catch (error: any) {
       log.error({ err: error }, 'Router error');
       res.status(500).json({ error: error.message });

@@ -91,6 +91,8 @@ services:
 | `ROUTER_MODEL` | *(empty)* | Model used for intent classification (e.g. `gemma3:4b`, `gemini-2.0-flash-lite`) |
 | `ROUTER_URL` | *(empty)* | Custom URL for the intent router. Defaults to `LOCAL_URL` if blank |
 | `ROUTER_KEY` | *(empty)* | Custom API key for the router endpoint |
+| `ROUTER_ENGINE` | `llm` | Default routing engine for new users: `llm` (router model) or `jev` (TypeSafe Jev, cloud) |
+| `TYPESAFE_API_KEY` | *(empty)* | TypeSafe API key for the Jev router. Used when a user has not stored their own key |
 | `CONFIG_DIR` | `/app/data` | Where config and conversations are stored |
 | `LOG_LEVEL` | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error` |
 | `PORT` | `3000` | Server port |
@@ -158,6 +160,24 @@ The router is a small model that reads each prompt and decides which category an
 - **Router Key** — API key for the router endpoint if required.
 
 The router model must be capable of returning valid JSON. If it wraps its response in markdown code blocks that's fine — Nexus strips them automatically.
+
+#### TypeSafe Jev engine (optional, cloud)
+
+Set **Routing Engine** to **TypeSafe Jev** to route with [Jev](https://docs.typesafe.ai), a classifier that returns a category and a probability for each option instead of generated text.
+
+- Jev only picks the **category**. The first model in that category answers.
+- Only categories with at least one model are offered. VISION and DOCUMENT are offered only when files are attached.
+- If Jev's confidence is below 0.5, Nexus uses GENERAL (when GENERAL has a model).
+- If the Jev call fails, Nexus uses the router model above as a fallback (when one is set).
+- **Privacy:** prompts (first 20,000 characters) are sent to `api.typesafe.ai`. Keep the `llm` engine with a local model for fully local operation.
+
+Compare both engines on your setup with a labeled prompt set (`scripts/routerEval.cases.json`):
+
+```bash
+TYPESAFE_API_KEY=... ROUTER_MODEL=gemma3:4b LOCAL_URL=http://localhost:11434 npm run eval:router
+```
+
+It prints accuracy, latency (p50/p95), input tokens, and the misses for each engine. For Jev it also prints accuracy at several confidence limits.
 
 ---
 

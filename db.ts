@@ -244,18 +244,17 @@ function migrateConfig(config: any): any {
   return config;
 }
 
-function decryptProviderKeys(config: any, encryptionSecret: string): void {
+type SecretTransform = (value: string, encryptionSecret: string) => string;
+
+/** Applies encrypt or decrypt to every stored secret in a config object, in place. */
+function transformConfigSecrets(config: any, transform: SecretTransform, encryptionSecret: string): void {
+  if (config.localKey) config.localKey = transform(config.localKey, encryptionSecret);
+  if (config.cloudKey) config.cloudKey = transform(config.cloudKey, encryptionSecret);
+  if (config.router?.key) config.router.key = transform(config.router.key, encryptionSecret);
+  if (config.router?.jevKey) config.router.jevKey = transform(config.router.jevKey, encryptionSecret);
   if (config.localProviders) {
     for (const p of config.localProviders) {
-      if (p.key) p.key = decrypt(p.key, encryptionSecret);
-    }
-  }
-}
-
-function encryptProviderKeys(clone: any, encryptionSecret: string): void {
-  if (clone.localProviders) {
-    for (const p of clone.localProviders) {
-      if (p.key) p.key = encrypt(p.key, encryptionSecret);
+      if (p.key) p.key = transform(p.key, encryptionSecret);
     }
   }
 }
@@ -266,19 +265,13 @@ export function readUserConfig(userId: string, encryptionSecret: string): any | 
   const row = db.prepare('SELECT data FROM user_configs WHERE user_id = ?').get(userId) as any;
   if (!row) return null;
   const config = JSON.parse(row.data);
-  if (config.localKey) config.localKey = decrypt(config.localKey, encryptionSecret);
-  if (config.cloudKey) config.cloudKey = decrypt(config.cloudKey, encryptionSecret);
-  if (config.router?.key) config.router.key = decrypt(config.router.key, encryptionSecret);
-  decryptProviderKeys(config, encryptionSecret);
+  transformConfigSecrets(config, decrypt, encryptionSecret);
   return migrateConfig(config);
 }
 
 export function writeUserConfig(userId: string, config: any, encryptionSecret: string): void {
   const clone = JSON.parse(JSON.stringify(config));
-  if (clone.localKey) clone.localKey = encrypt(clone.localKey, encryptionSecret);
-  if (clone.cloudKey) clone.cloudKey = encrypt(clone.cloudKey, encryptionSecret);
-  if (clone.router?.key) clone.router.key = encrypt(clone.router.key, encryptionSecret);
-  encryptProviderKeys(clone, encryptionSecret);
+  transformConfigSecrets(clone, encrypt, encryptionSecret);
   const json = JSON.stringify(clone);
   db.prepare('INSERT OR REPLACE INTO user_configs (user_id, data) VALUES (?, ?)').run(userId, json);
 }
@@ -289,19 +282,13 @@ export function readConfig(encryptionSecret: string): any {
   const row = db.prepare('SELECT data FROM config WHERE id = 1').get() as any;
   if (!row) return null;
   const config = JSON.parse(row.data);
-  if (config.localKey) config.localKey = decrypt(config.localKey, encryptionSecret);
-  if (config.cloudKey) config.cloudKey = decrypt(config.cloudKey, encryptionSecret);
-  if (config.router?.key) config.router.key = decrypt(config.router.key, encryptionSecret);
-  decryptProviderKeys(config, encryptionSecret);
+  transformConfigSecrets(config, decrypt, encryptionSecret);
   return migrateConfig(config);
 }
 
 export function writeConfig(config: any, encryptionSecret: string): void {
   const clone = JSON.parse(JSON.stringify(config));
-  if (clone.localKey) clone.localKey = encrypt(clone.localKey, encryptionSecret);
-  if (clone.cloudKey) clone.cloudKey = encrypt(clone.cloudKey, encryptionSecret);
-  if (clone.router?.key) clone.router.key = encrypt(clone.router.key, encryptionSecret);
-  encryptProviderKeys(clone, encryptionSecret);
+  transformConfigSecrets(clone, encrypt, encryptionSecret);
   const json = JSON.stringify(clone);
   db.prepare('INSERT OR REPLACE INTO config (id, data) VALUES (1, ?)').run(json);
 }

@@ -10,7 +10,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval:router": "tsx scripts/routerEval.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
