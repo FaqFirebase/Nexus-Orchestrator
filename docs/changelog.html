@@ -121,6 +121,85 @@
   <div class="box">
     <div class="box-title">Release History</div>
 
+    <!-- v1.2.1 -->
+    <div class="version-group">
+      <div class="version-label">
+        v1.2.1
+        <span class="version-badge dev">beta</span>
+      </div>
+
+      <div class="item">
+        <div class="item-icon">✓</div>
+        <div class="item-body">
+          <div class="item-title">TypeSafe Jev Router (opt-in)</div>
+          <div class="item-desc">
+            New optional routing engine. Pick <strong>TypeSafe Jev</strong> in Models → Intent Router and paste a TypeSafe API key. Jev answers one typed choice over the categories that have models: no generated JSON to parse. Low confidence (&lt; 0.5) routes to GENERAL; a failed Jev call falls back to the router model. The existing LLM router stays the default. New optional env vars <code>ROUTER_ENGINE</code> and <code>TYPESAFE_API_KEY</code>; the Unraid template works unchanged. Prompts are sent to <code>api.typesafe.ai</code> only when Jev is selected. <code>npm run eval:router</code> scores both engines on a 50-prompt labeled set.
+          </div>
+          <div class="item-tags">
+            <span class="tag blue">Backend</span>
+            <span class="tag blue">Frontend</span>
+            <span class="tag purple">Routing</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon">✓</div>
+        <div class="item-body">
+          <div class="item-title">Bug Fixes</div>
+          <div class="item-desc">
+            <strong>Image attachments now reach the model</strong> — chat validation stripped them, so vision models only saw text. <strong>Stop now really stops</strong> — client disconnect is detected correctly, so the upstream request, model-loading retries, and tool loop are cancelled, and a queued request no longer hangs. <strong>No more lost chats</strong> — switching chats while a reply streams can no longer overwrite the other chat; stopped or failed replies are saved. Tool follow-ups use the fallback model that actually answered. Deleted categories no longer come back after reload. Masked provider keys are restored by URL, not list position. Model discovery has a timeout. Pages with invalid character codes no longer break <code>fetch_url</code>.
+          </div>
+          <div class="item-tags">
+            <span class="tag red">Fix</span>
+            <span class="tag blue">Backend</span>
+            <span class="tag blue">Frontend</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon">✓</div>
+        <div class="item-body">
+          <div class="item-title">Security Hardening</div>
+          <div class="item-desc">
+            MCP bearer tokens and headers are now encrypted at rest and masked in the settings API. <code>fetch_url</code> checks every redirect hop against the SSRF guard (max 5) and reads at most 2 MB. One shared outbound-URL guard (<code>urlSafety.ts</code>) replaces three copies. CSP stays strict: fonts are no longer inlined as <code>data:</code> URIs (fixes the blocked KaTeX font).
+          </div>
+          <div class="item-tags">
+            <span class="tag red">Security</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon">✓</div>
+        <div class="item-body">
+          <div class="item-title">Node 24 &amp; Dependency Upgrades</div>
+          <div class="item-desc">
+            Docker image moved from Node 20 (end-of-life) to Node 24 LTS. Upgraded Express 5, Vite 8, Vitest 5, TypeScript 7 (now <code>strict</code>), pino 10, better-sqlite3 13, cookie 2, dotenv 18, motion 13, lucide-react 1. KaTeX stays on 0.16 until rehype-katex supports newer versions. <code>npm audit</code>: 0 vulnerabilities. Tested as an in-place upgrade over 1.2.0 data, and as a rollback to 1.2.0.
+          </div>
+          <div class="item-tags">
+            <span class="tag amber">Dependencies</span>
+            <span class="tag zinc">Docker</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="item-icon">✓</div>
+        <div class="item-body">
+          <div class="item-title">Cleanup &amp; Docs</div>
+          <div class="item-desc">
+            Removed dead code (legacy provider fallbacks, <code>gemini</code> provider value, unused DB params and returns, AI Studio config leftovers) and merged duplicated session, cookie, and provider-probe code. Named constants replace magic numbers. OpenRouter quick-select IDs updated. Docs: <code>CHAT_TIMEOUT_MS</code> documented; env vars only seed users without saved settings (the Unraid guide said otherwise).
+          </div>
+          <div class="item-tags">
+            <span class="tag zinc">Maintenance</span>
+            <span class="tag zinc">Docs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- v1.2.0 -->
     <div class="version-group">
       <div class="version-label">

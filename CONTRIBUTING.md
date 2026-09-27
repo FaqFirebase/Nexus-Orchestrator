@@ -15,7 +15,7 @@ npm run dev            # starts server + Vite HMR on :3000
 ```
 
 You'll need:
-- Node.js 20+
+- Node.js 24+
 - An Ollama instance (or any OpenAI-compatible endpoint) for testing routing
 
 ---

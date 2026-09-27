@@ -88,11 +88,12 @@ services:
 | `LOCAL_KEY` | *(empty)* | API key for local provider (if required) |
 | `CLOUD_URL` | *(empty)* | OpenAI-compatible base URL for cloud provider |
 | `CLOUD_API_KEY` | *(empty)* | API key for cloud provider (also accepts `CLOUD_KEY`) |
-| `ROUTER_MODEL` | *(empty)* | Model used for intent classification (e.g. `gemma3:4b`, `gemini-2.0-flash-lite`) |
+| `ROUTER_MODEL` | *(empty)* | Model used for intent classification (e.g. `gemma3:4b`, `qwen3:4b`) |
 | `ROUTER_URL` | *(empty)* | Custom URL for the intent router. Defaults to `LOCAL_URL` if blank |
 | `ROUTER_KEY` | *(empty)* | Custom API key for the router endpoint |
 | `ROUTER_ENGINE` | `llm` | Default routing engine for new users: `llm` (router model) or `jev` (TypeSafe Jev, cloud) |
 | `TYPESAFE_API_KEY` | *(empty)* | TypeSafe API key for the Jev router. Used when a user has not stored their own key |
+| `CHAT_TIMEOUT_MS` | `300000` | How long one chat attempt may wait for a provider (ms). Raise it for slow model swaps |
 | `CONFIG_DIR` | `/app/data` | Where config and conversations are stored |
 | `LOG_LEVEL` | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error` |
 | `PORT` | `3000` | Server port |
@@ -307,10 +308,10 @@ See **[roadmap.html](docs/roadmap.html)** for the full visual roadmap (planned i
 
 ## Changelog
 
+**v1.2.1** — Optional TypeSafe Jev router (Models → Intent Router), with fallback to the router model. Fixes: image attachments now reach vision models; Stop really cancels generation; switching chats mid-reply no longer loses messages; deleted categories stay deleted. MCP tokens encrypted at rest; `fetch_url` checks every redirect. Node 24 LTS, Express 5, Vite 8, TypeScript 7 (strict). 0 audit vulnerabilities.
+
 **v1.2.0** — MCP server consumption: add external MCP servers in the Models tab as LLM tools (`<server>__<tool>` prefix, per-user config, bearer auth, 5-min TTL cache, SSRF guardrails). Agentic loop cap raised 4 → 8. URL fetch tool (`fetch_url`) alongside web search — LLM can chain search → fetch → answer. Tool-calling path refactored to multi-turn agentic loop. Thinking toggle for reasoning models (DeepSeek R1, QwQ). Code block horizontal scroll. Provider URL canonicalization fix. CVE patches (`express-rate-limit`, `postcss`, `hono`, `qs`, `vite`, `esbuild`, `@babel/core`). Dead code cleanup. Docs moved into `docs/`; chat messages centered.
 
 **v1.1.9** — Thinking toggle for reasoning models (DeepSeek R1, QwQ, etc.). Client-side `<think>` tag parsing with collapsible display above responses. Global default (System tab) and per-chat override (Brain icon). Docker image reduced from 127 MB to ~86 MB via dependency cleanup and build-stage pruning. Added CONTRIBUTING.md, SECURITY.md, and GitHub issue templates.
-
-**v1.1.8** — Copy button on code blocks (hover to reveal, 2-second "Copied" feedback). FAST category routing tightened — now restricted to greetings and micro-interactions only; factual questions route to GENERAL. Security hardening: CORS spec compliance, cloud metadata SSRF blocking, security headers (CSP, HSTS, X-Frame-Options, etc.), rate limiting on password change, session memory leak fix, per-user session cap, reduced body size limits, trust proxy for Caddy, admin settings schema validation, password complexity requirements, and cookie parser hardening.
 
 See [changelog.html](docs/changelog.html) for the full release history.
