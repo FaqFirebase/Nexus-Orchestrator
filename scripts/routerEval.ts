@@ -15,7 +15,7 @@ import {
   type RoutingCategory,
 } from '../router.js';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 interface EvalCase {
   prompt: string;

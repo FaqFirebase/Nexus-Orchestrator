@@ -13,7 +13,8 @@ const logger = pino({
   redact: {
     paths: [
       'headers.authorization',
-      'headers["x-api-key"]',
+      'headers["x-admin-key"]',
+      'req.headers["x-admin-key"]',
       'req.headers.authorization',
       '*.bearer',
       '*.*.bearer',

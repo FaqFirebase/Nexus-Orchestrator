@@ -3,18 +3,20 @@ import path from "path";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
-import { parse as parseCookieHeader } from "cookie";
+import { parseCookie as parseCookieHeader } from "cookie";
 import log from "./logger.js";
 import {
   initDb, readUserConfig, writeUserConfig,
   listConversations, listConversationsPaginated, getConversation, createConv, updateConv, deleteConv,
   listProjects, createProject, updateProject, deleteProject, assignConversation,
-  bootstrapAdmin, createUser, getUserByUsername, getUserById, listUsers, updateUserPassword, deleteUser,
+  bootstrapAdmin, createUser, ADMIN_USERNAME, getUserByUsername, getUserById, listUsers, updateUserPassword, deleteUser,
   getAdminSettings, updateAdminSettings,
   close as closeDb
 } from "./db.js";
 import { hashPassword, verifyPassword } from "./crypto.js";
 import { fetchUrlAndStrip } from "./fetchUrl.js";
+import { checkOutboundUrl } from "./urlSafety.js";
+import { maskKey, isMaskedKey, restoreMaskedSecret } from "./secretMask.js";
 import { routeIntent, DEFAULT_ROUTER_ENGINE, type RouteContext, type RouteRequest } from "./router.js";
 import {
   listMcpTools,
@@ -32,7 +34,7 @@ import {
   adminSettingsSchema
 } from "./validation.js";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || (() => {
@@ -43,9 +45,42 @@ const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || (() => {
 })();
 
 // Cookie helpers
-function parseCookies(header: string | undefined): Record<string, string> {
+function parseCookies(header: string | undefined): Record<string, string | undefined> {
   if (!header) return {};
   return parseCookieHeader(header);
+}
+
+/** Reads a ":name" route segment. Express 5 types allow string[] (for wildcards), which these routes never use. */
+function routeParam(req: express.Request, name: string): string {
+  const value = req.params[name];
+  return Array.isArray(value) ? value.join('/') : value;
+}
+
+const SESSION_COOKIE = 'nexus_session';
+const SESSION_COOKIE_PATH = '/';
+
+/** Returns the user behind the request's session cookie, or null. */
+function userFromSessionCookie(req: express.Request) {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+  const session = token ? getSession(token) : null;
+  return session ? getUserById(session.userId) : null;
+}
+
+/** Starts a new session for userId and sets the httpOnly session cookie. */
+function startSessionCookie(req: express.Request, res: express.Response, userId: string): void {
+  res.cookie(SESSION_COOKIE, createSession(userId), {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: req.secure,
+    path: SESSION_COOKIE_PATH,
+    maxAge: SESSION_MAX_AGE,
+  });
+}
+
+/** Seeds a new user's config from sourceUserId's config (when one exists), else from DEFAULT_CONFIG. */
+function seedNewUserConfig(newUserId: string, sourceUserId: string | undefined): void {
+  const sourceConfig = sourceUserId ? readUserConfig(sourceUserId, ENCRYPTION_SECRET) : null;
+  writeUserConfig(newUserId, sourceConfig ?? DEFAULT_CONFIG, ENCRYPTION_SECRET);
 }
 
 // Session management — maps session tokens to user IDs
@@ -97,6 +132,8 @@ function sweepExpiredSessions(): void {
 }
 
 const DEFAULT_LOCAL_URL = "http://localhost:11434";
+const DEFAULT_PORT = 3000;
+const PORT = parseInt(process.env.PORT || '', 10) || DEFAULT_PORT;
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -130,21 +167,37 @@ const DEFAULT_CONFIG = {
 // Tracks which base URLs are confirmed Ollama instances (detected via /api/tags during health check)
 const ollamaUrls = new Set<string>();
 
-/** Returns the first configured local provider's URL and key. */
+/** Returns the first configured local provider's URL and key (migrateConfig guarantees one exists). */
 function getFirstLocalProvider(config: any): { url: string; key: string } {
-  if (config.localProviders?.length > 0) {
-    const p = config.localProviders[0];
-    return { url: (p.url || DEFAULT_LOCAL_URL).replace(/\/$/, ""), key: p.key || '' };
-  }
-  return { url: (config.localUrl || DEFAULT_LOCAL_URL).replace(/\/$/, ""), key: config.localKey || '' };
+  const p = config.localProviders[0];
+  return { url: (p.url || DEFAULT_LOCAL_URL).replace(/\/$/, ""), key: p.key || '' };
+}
+
+const PROVIDER_PROBE_TIMEOUT_MS = 15_000;
+
+/** Adds a missing http:// scheme and drops the trailing slash from a provider URL. */
+function toProviderBaseUrl(providerUrl: string): string {
+  const withScheme = providerUrl.startsWith('http') ? providerUrl : `http://${providerUrl}`;
+  return withScheme.replace(/\/$/, "");
+}
+
+function providerProbeHeaders(providerKey: string): Record<string, string> {
+  return {
+    'User-Agent': PROVIDER_USER_AGENT,
+    'Accept': 'application/json',
+    ...(providerKey && { Authorization: `Bearer ${providerKey}` }),
+  };
+}
+
+/** Canonical form of a provider base URL for comparisons. */
+function normalizeProviderUrl(url: string): string {
+  return url.replace(/\/$/, '').toLowerCase();
 }
 
 /** Finds the key for a given provider URL. Returns empty string if not found. */
 function getProviderKey(config: any, providerUrl: string): string {
-  const normalized = providerUrl.replace(/\/$/, "");
-  const found = (config.localProviders || []).find((p: any) =>
-    (p.url || '').replace(/\/$/, "") === normalized
-  );
+  const normalized = normalizeProviderUrl(providerUrl);
+  const found = config.localProviders.find((p: any) => normalizeProviderUrl(p.url || '') === normalized);
   return found?.key || '';
 }
 
@@ -178,59 +231,24 @@ function setCachedRoute(userId: string, prompt: string, decision: any): void {
   routerCache.set(key, { decision, timestamp: Date.now() });
 }
 
-// SSRF protection: validate URLs before storing or fetching
-// Only blocks cloud metadata endpoints — private LAN IPs (192.168.x, 10.x, 172.x)
-// are intentionally allowed since Nexus is a self-hosted tool that connects to local providers.
-const BLOCKED_HOSTS = [
-  '169.254.169.254',          // AWS/GCP/Azure IMDS
-  'metadata.google.internal', // GCP metadata
-  'metadata.internal',        // GCP internal alias
-  'kubernetes.default.svc',   // Kubernetes API server
-];
+// SSRF protection for stored provider URLs: shared outbound checks plus a guard against Nexus itself.
+const SELF_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
+const DEFAULT_HTTP_PORT = '80';
 
 function validateUrl(url: string): { valid: boolean; reason?: string } {
   if (!url || url.trim() === '') return { valid: true }; // empty is ok
-  try {
-    const parsed = new URL(url);
-    // Only allow http/https
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return { valid: false, reason: `Invalid URL scheme "${parsed.protocol}" — only http and https are allowed` };
-    }
-    // Block cloud metadata endpoints
-    if (BLOCKED_HOSTS.includes(parsed.hostname)) {
-      return { valid: false, reason: `Blocked host "${parsed.hostname}"` };
-    }
-    // Block IPv6 loopback
-    if (parsed.hostname === '[::1]' || parsed.hostname === '::1') {
-      return { valid: false, reason: 'IPv6 loopback is not allowed' };
-    }
-    // Block loopback to self on Nexus's own port
-    const selfPort = process.env.PORT || '3000';
-    const selfHosts = ['localhost', '127.0.0.1', '0.0.0.0'];
-    if (selfHosts.includes(parsed.hostname) && (parsed.port === selfPort || (!parsed.port && selfPort === '80'))) {
-      return { valid: false, reason: 'URL points back to Nexus Orchestrator itself' };
-    }
-    return { valid: true };
-  } catch {
-    return { valid: false, reason: 'Malformed URL' };
+  const check = checkOutboundUrl(url);
+  if (!check.ok) return { valid: false, reason: check.reason };
+  // Block loopback to self on Nexus's own port
+  const selfPort = PORT.toString();
+  const { hostname, port } = check.url;
+  if (SELF_HOSTS.has(hostname) && (port === selfPort || (!port && selfPort === DEFAULT_HTTP_PORT))) {
+    return { valid: false, reason: 'URL points back to Nexus Orchestrator itself' };
   }
+  return { valid: true };
 }
 
 // Helper to mask API keys
-const MASKED_SHORT_KEY = "****";
-const MASK_SEPARATOR = "...";
-const MASK_VISIBLE_CHARS = 4;
-
-function maskKey(key: string | undefined): string {
-  if (!key) return "";
-  if (key.length <= MASK_VISIBLE_CHARS * 2) return MASKED_SHORT_KEY;
-  return `${key.substring(0, MASK_VISIBLE_CHARS)}${MASK_SEPARATOR}${key.substring(key.length - MASK_VISIBLE_CHARS)}`;
-}
-
-/** True when a client sent back a value produced by maskKey instead of a real key. */
-function isMaskedKey(value: unknown): boolean {
-  return typeof value === 'string' && (value.includes(MASK_SEPARATOR) || value === MASKED_SHORT_KEY);
-}
 
 // Rate limiters
 const authLimiter = rateLimit({
@@ -267,19 +285,11 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
     });
   }
 
-  const cookies = parseCookies(req.headers.cookie);
-  const sessionToken = cookies['nexus_session'];
-
-  if (sessionToken) {
-    const session = getSession(sessionToken);
-    if (session) {
-      const user = getUserById(session.userId);
-      if (user) {
-        req.userId = user.id;
-        req.userRole = user.role;
-        return next();
-      }
-    }
+  const sessionUser = userFromSessionCookie(req);
+  if (sessionUser) {
+    req.userId = sessionUser.id;
+    req.userRole = sessionUser.role;
+    return next();
   }
 
   // Fallback: x-admin-key header for API clients — verified against ADMIN_API_KEY env var,
@@ -292,7 +302,7 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
     const keysMatch = headerBuf.length === keyBuf.length &&
       crypto.timingSafeEqual(headerBuf, keyBuf);
     if (keysMatch) {
-      const adminUser = getUserByUsername('admin');
+      const adminUser = getUserByUsername(ADMIN_USERNAME);
       if (adminUser) {
         req.userId = adminUser.id;
         req.userRole = adminUser.role;
@@ -322,6 +332,55 @@ function getUserConfig(userId: string): any {
 }
 
 // Config and conversations init/migration handled by db.ts initDb()
+
+const PROVIDER_USER_AGENT = 'NexusOrchestrator/1.0';
+const DEFAULT_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
+const MODEL_LOADING_MAX_RETRIES = 5;
+const MODEL_LOADING_RETRY_STEP_MS = 30_000; // waits 30s, 60s, 90s, ... between retries
+const MAX_TOOL_ITERATIONS = 8;
+const DEFAULT_IMAGE_PROMPT = 'Analyze this image';
+const VISION_CATEGORY = 'VISION';
+
+/** Strips the "data:<mime>;base64," prefix from a data URL. */
+function base64Payload(dataUrl: string): string {
+  return dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+}
+
+/**
+ * Maps a chat message to the provider request shape. Images are included only when includeImages is set
+ * (VISION routing), so a text-only model never receives image parts from earlier turns.
+ */
+function toProviderMessage(m: any, isOllamaNative: boolean, includeImages: boolean): any {
+  const msg: any = { role: m.role, content: m.content || '' };
+  if (!includeImages) return msg;
+  const images: string[] = (m.attachments || [])
+    .filter((a: any) => a.type?.startsWith('image/') && a.content)
+    .map((a: any) => base64Payload(a.content));
+  if (images.length === 0) return msg;
+
+  if (isOllamaNative) {
+    // Ollama native /api/chat: string content + images array
+    msg.images = images;
+    msg.content = m.content || DEFAULT_IMAGE_PROMPT;
+  } else if (m.role === 'user') {
+    // OpenAI-compat /v1/chat/completions: content as array of parts
+    msg.content = [
+      { type: 'text', text: m.content || DEFAULT_IMAGE_PROMPT },
+      ...images.map(img => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } })),
+    ];
+  }
+  return msg;
+}
+
+/** Waits for ms, or rejects early with an AbortError when signal aborts. */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+    function onAbort() { clearTimeout(timer); reject(signal.reason); }
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 // Pipes an upstream SSE ReadableStream reader to an Express response.
 // When showThinking is true, Ollama's message.thinking chunks are synthesized
@@ -393,16 +452,19 @@ interface SearchResult {
   sources: SearchSource[];
 }
 
+const SEARXNG_TIMEOUT_MS = 10_000;
+const SEARXNG_MAX_RESULTS = 5;
+
 // SearXNG web search helper — used by tool-calling path in handleChat
 async function runSearxngSearch(searxngUrl: string, query: string): Promise<SearchResult> {
   try {
     const url = new URL('/search', searxngUrl);
     url.searchParams.set('q', query);
     url.searchParams.set('format', 'json');
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10000) });
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(SEARXNG_TIMEOUT_MS) });
     if (!res.ok) return { text: `Search failed: HTTP ${res.status}`, sources: [] };
     const data = await res.json() as any;
-    const raw = (data.results || []).slice(0, 5) as any[];
+    const raw = (data.results || []).slice(0, SEARXNG_MAX_RESULTS) as any[];
     const sources: SearchSource[] = raw.map((r: any) => ({
       title: r.title || '',
       url: r.url || '',
@@ -456,7 +518,6 @@ function getChatQueue(userId: string): UserChatQueue {
 
 async function startServer() {
   const app = express();
-  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   // Trust the first reverse proxy (Caddy) so req.secure reflects X-Forwarded-Proto correctly
   app.set('trust proxy', 1);
@@ -464,9 +525,10 @@ async function startServer() {
   // Global body limit — 1MB covers all non-media endpoints.
   // Chat and conversation routes that may carry base64 images get a higher override.
   const LARGE_BODY_LIMIT = '20mb';
+  const DEFAULT_BODY_LIMIT = '1mb';
   app.use('/api/chat', express.json({ limit: LARGE_BODY_LIMIT }));
   app.use('/api/conversations', express.json({ limit: LARGE_BODY_LIMIT }));
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: DEFAULT_BODY_LIMIT }));
 
   // CORS — only allow same-origin requests
   app.use((req, res, next) => {
@@ -523,21 +585,9 @@ async function startServer() {
   // ─── Auth Endpoints ───
 
   app.get("/api/auth/status", (req, res) => {
-    const cookies = parseCookies(req.headers.cookie);
-    const sessionToken = cookies['nexus_session'];
-    let isAuthenticated = false;
-    let user = null;
-
-    if (sessionToken) {
-      const session = getSession(sessionToken);
-      if (session) {
-        const dbUser = getUserById(session.userId);
-        if (dbUser) {
-          isAuthenticated = true;
-          user = { id: dbUser.id, username: dbUser.username, role: dbUser.role };
-        }
-      }
-    }
+    const dbUser = userFromSessionCookie(req);
+    const isAuthenticated = !!dbUser;
+    const user = dbUser ? { id: dbUser.id, username: dbUser.username, role: dbUser.role } : null;
 
     const settings = getAdminSettings();
     res.json({
@@ -556,14 +606,7 @@ async function startServer() {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
-    const token = createSession(user.id);
-    res.cookie('nexus_session', token, {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: req.secure,
-      path: '/',
-      maxAge: SESSION_MAX_AGE,
-    });
+    startSessionCookie(req, res, user.id);
     res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
   });
 
@@ -584,36 +627,18 @@ async function startServer() {
     const passwordHash = hashPassword(password);
     const user = createUser(username, passwordHash, 'user');
 
-    // Copy admin's config as the new user's default
-    const adminUser = getUserByUsername('admin');
-    if (adminUser) {
-      const adminConfig = readUserConfig(adminUser.id, ENCRYPTION_SECRET);
-      if (adminConfig) {
-        writeUserConfig(user.id, adminConfig, ENCRYPTION_SECRET);
-      } else {
-        writeUserConfig(user.id, DEFAULT_CONFIG, ENCRYPTION_SECRET);
-      }
-    } else {
-      writeUserConfig(user.id, DEFAULT_CONFIG, ENCRYPTION_SECRET);
-    }
+    // Copy the bootstrap admin's config as the new user's default
+    seedNewUserConfig(user.id, getUserByUsername(ADMIN_USERNAME)?.id);
 
     // Auto-login after registration
-    const token = createSession(user.id);
-    res.cookie('nexus_session', token, {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: req.secure,
-      path: '/',
-      maxAge: SESSION_MAX_AGE,
-    });
+    startSessionCookie(req, res, user.id);
     res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
   });
 
   app.post("/api/auth/logout", (req, res) => {
-    const cookies = parseCookies(req.headers.cookie);
-    const sessionToken = cookies['nexus_session'];
+    const sessionToken = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     if (sessionToken) deleteSession(sessionToken);
-    res.clearCookie('nexus_session', { path: '/' });
+    res.clearCookie(SESSION_COOKIE, { path: SESSION_COOKIE_PATH });
     res.json({ success: true });
   });
 
@@ -628,14 +653,7 @@ async function startServer() {
     // Invalidate all sessions for this user
     deleteUserSessions(user.id);
     // Create a new session for the current request
-    const token = createSession(user.id);
-    res.cookie('nexus_session', token, {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: req.secure,
-      path: '/',
-      maxAge: SESSION_MAX_AGE,
-    });
+    startSessionCookie(req, res, user.id);
     res.json({ success: true });
   });
 
@@ -656,19 +674,14 @@ async function startServer() {
     const passwordHash = hashPassword(password);
     const user = createUser(username, passwordHash, role);
 
-    // Copy admin's config as new user's default
-    const adminConfig = readUserConfig(req.userId!, ENCRYPTION_SECRET);
-    if (adminConfig) {
-      writeUserConfig(user.id, adminConfig, ENCRYPTION_SECRET);
-    } else {
-      writeUserConfig(user.id, DEFAULT_CONFIG, ENCRYPTION_SECRET);
-    }
+    // Copy the creating admin's config as the new user's default
+    seedNewUserConfig(user.id, req.userId);
 
     res.json(user);
   });
 
   app.delete("/api/admin/users/:id", authMiddleware, adminMiddleware, (req, res) => {
-    const targetId = req.params.id;
+    const targetId = routeParam(req, 'id');
     if (targetId === req.userId) {
       return res.status(400).json({ error: "Cannot delete your own account" });
     }
@@ -682,7 +695,7 @@ async function startServer() {
   });
 
   app.put("/api/admin/users/:id/reset", authMiddleware, adminMiddleware, validate(adminResetPasswordSchema), (req, res) => {
-    const targetId = req.params.id;
+    const targetId = routeParam(req, 'id');
     const target = getUserById(targetId);
     if (!target) {
       return res.status(404).json({ error: "User not found" });
@@ -725,6 +738,13 @@ async function startServer() {
         localProviders: (config.localProviders || []).map((p: any) => ({
           ...p,
           key: p.key ? maskKey(p.key) : "",
+        })),
+        mcpServers: (config.mcpServers || []).map((server: McpServer) => ({
+          ...server,
+          ...(server.bearer && { bearer: maskKey(server.bearer) }),
+          ...(server.headers && {
+            headers: Object.fromEntries(Object.entries(server.headers).map(([name, value]) => [name, maskKey(value)])),
+          }),
         })),
       };
 
@@ -771,27 +791,40 @@ async function startServer() {
       // Read current config to preserve masked keys
       const currentConfig = getUserConfig(req.userId!);
 
-      // If an incoming key is masked, keep the stored key
-      if (isMaskedKey(newConfig.localKey)) newConfig.localKey = currentConfig.localKey || "";
-      if (isMaskedKey(newConfig.cloudKey)) newConfig.cloudKey = currentConfig.cloudKey || "";
-      if (isMaskedKey(newConfig.router?.key)) newConfig.router.key = currentConfig.router?.key || "";
-      if (isMaskedKey(newConfig.router?.jevKey)) newConfig.router.jevKey = currentConfig.router?.jevKey || "";
-      (newConfig.localProviders || []).forEach((provider: any, i: number) => {
-        if (isMaskedKey(provider.key)) provider.key = currentConfig.localProviders?.[i]?.key || '';
-      });
+      // A masked value means "keep the stored secret". It is matched by its mask, so a key follows its own
+      // entry through URL edits, reorders and deletions, and never moves to a different provider.
+      if (isMaskedKey(newConfig.localKey)) newConfig.localKey = restoreMaskedSecret(newConfig.localKey, [currentConfig.localKey]);
+      if (isMaskedKey(newConfig.cloudKey)) newConfig.cloudKey = restoreMaskedSecret(newConfig.cloudKey, [currentConfig.cloudKey]);
+      if (isMaskedKey(newConfig.router?.key)) newConfig.router.key = restoreMaskedSecret(newConfig.router.key, [currentConfig.router?.key]);
+      if (isMaskedKey(newConfig.router?.jevKey)) newConfig.router.jevKey = restoreMaskedSecret(newConfig.router.jevKey, [currentConfig.router?.jevKey]);
+      const storedProviders: Array<{ url?: string; key?: string }> = currentConfig.localProviders || [];
+      for (const provider of newConfig.localProviders || []) {
+        if (!isMaskedKey(provider.key)) continue;
+        const sameUrl = storedProviders.filter(p => normalizeProviderUrl(p.url || '') === normalizeProviderUrl(provider.url || ''));
+        provider.key = restoreMaskedSecret(provider.key, sameUrl.map(p => p.key), storedProviders.map(p => p.key));
+      }
+      const storedMcpServers = new Map<string, McpServer>(
+        (currentConfig.mcpServers || []).map((server: McpServer) => [server.id, server])
+      );
+      for (const server of (newConfig.mcpServers || []) as McpServer[]) {
+        const stored = storedMcpServers.get(server.id);
+        if (isMaskedKey(server.bearer)) server.bearer = restoreMaskedSecret(server.bearer, [stored?.bearer]);
+        for (const [name, value] of Object.entries(server.headers || {})) {
+          if (isMaskedKey(value)) server.headers![name] = restoreMaskedSecret(value, [stored?.headers?.[name]]);
+        }
+      }
 
       // Canonicalize category model providerUrls against the current provider list.
       // CategoryModel stores { name, providerUrl } at assignment time — if a provider URL is
       // renamed (even in a prior save), stale entries won't match any known provider.
       // Replace any unrecognised providerUrl with the first local provider URL as fallback.
       if (newConfig.localProviders?.length > 0 && newConfig.categories) {
-        const normalize = (u: string) => u.replace(/\/$/, '').toLowerCase();
-        const knownUrls = new Set((newConfig.localProviders as any[]).map((p: any) => normalize(p.url || '')));
+        const knownUrls = new Set((newConfig.localProviders as any[]).map((p: any) => normalizeProviderUrl(p.url || '')));
         const fallbackUrl = newConfig.localProviders[0].url;
         for (const cat of Object.values(newConfig.categories) as any[]) {
           if (!Array.isArray(cat.models)) continue;
           for (const m of cat.models) {
-            if (m && m.providerUrl && !knownUrls.has(normalize(m.providerUrl))) {
+            if (m && m.providerUrl && !knownUrls.has(normalizeProviderUrl(m.providerUrl))) {
               m.providerUrl = fallbackUrl;
             }
           }
@@ -861,9 +894,7 @@ async function startServer() {
   async function checkProvider(providerUrl: string, providerKey: string, providerName: string): Promise<{
     name: string; url: string; online: boolean; isOllama: boolean; message?: string;
   }> {
-    let url = providerUrl;
-    if (!url.startsWith('http')) url = `http://${url}`;
-    url = url.replace(/\/$/, "");
+    const url = toProviderBaseUrl(providerUrl);
 
     const selfPort = PORT.toString();
     if (url.includes(`localhost:${selfPort}`) || url.includes(`0.0.0.0:${selfPort}`) || url.includes(`127.0.0.1:${selfPort}`)) {
@@ -873,11 +904,10 @@ async function startServer() {
       };
     }
 
-    const headers: any = { 'User-Agent': 'NexusOrchestrator/1.0', 'Accept': 'application/json' };
-    if (providerKey) headers['Authorization'] = `Bearer ${providerKey}`;
+    const headers = providerProbeHeaders(providerKey);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), PROVIDER_PROBE_TIMEOUT_MS);
 
     try {
       log.debug({ url, name: providerName }, 'Checking provider health');
@@ -932,9 +962,7 @@ async function startServer() {
   app.get("/api/health", authMiddleware, async (req, res) => {
     try {
       const config = getUserConfig(req.userId!);
-      const providers: Array<{ name: string; url: string; key: string }> = config.localProviders?.length > 0
-        ? config.localProviders
-        : [{ name: 'Local', url: config.localUrl || DEFAULT_LOCAL_URL, key: config.localKey || '' }];
+      const providers: Array<{ name: string; url: string; key: string }> = config.localProviders;
 
       const results = await Promise.all(
         providers.map((p: any) => checkProvider(p.url || DEFAULT_LOCAL_URL, p.key || '', p.name || 'Local'))
@@ -957,17 +985,14 @@ async function startServer() {
   async function discoverModelsFromProvider(
     providerUrl: string, providerKey: string, providerName: string
   ): Promise<any[]> {
-    let url = providerUrl;
-    if (!url.startsWith('http')) url = `http://${url}`;
-    url = url.replace(/\/$/, "");
+    const url = toProviderBaseUrl(providerUrl);
 
-    const headers: any = { 'User-Agent': 'NexusOrchestrator/1.0', 'Accept': 'application/json' };
-    if (providerKey) headers['Authorization'] = `Bearer ${providerKey}`;
+    const headers = providerProbeHeaders(providerKey);
 
     const tag = { providerUrl: url, providerName };
 
     for (const probe of buildProbeUrls(url)) {
-      const res = await fetch(probe.url, { headers }).catch(() => null);
+      const res = await fetch(probe.url, { headers, signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS) }).catch(() => null);
       if (!res?.ok) continue;
 
       const contentType = res.headers.get("content-type");
@@ -1017,9 +1042,7 @@ async function startServer() {
   app.get("/api/models", authMiddleware, async (req, res) => {
     try {
       const config = getUserConfig(req.userId!);
-      const providers: Array<{ name: string; url: string; key: string }> = config.localProviders?.length > 0
-        ? config.localProviders
-        : [{ name: 'Local', url: config.localUrl || DEFAULT_LOCAL_URL, key: config.localKey || '' }];
+      const providers: Array<{ name: string; url: string; key: string }> = config.localProviders;
 
       const results = await Promise.allSettled(
         providers.map((p: any) =>
@@ -1079,11 +1102,11 @@ async function startServer() {
     }
   });
 
-  // Main Chat Routing Endpoint (uses requesting user's config)
+  // MCP server tool-list refresh (uses requesting user's config)
   app.post("/api/mcp/refresh/:serverId", authMiddleware, apiLimiter, async (req, res) => {
     try {
       const userId = req.userId!;
-      const serverId = req.params.serverId;
+      const serverId = routeParam(req, 'serverId');
       const config = getUserConfig(userId);
       const servers: McpServer[] = (config as any).mcpServers || [];
       const server = servers.find(s => s.id === serverId);
@@ -1107,14 +1130,17 @@ async function startServer() {
     const { messages, decision } = req.body;
     const queue = getChatQueue(req.userId!);
 
-    let cancelled = false;
-    req.on('close', () => { cancelled = true; });
+    // req 'close' fires as soon as the body is read; res 'close' before finish means the client left.
+    const clientGone = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) clientGone.abort(new DOMException('Client disconnected', 'AbortError'));
+    });
 
     try {
       await queue.enqueue(async () => {
-        if (cancelled) return;
+        if (clientGone.signal.aborted) return;
         try {
-          await handleChat(req, res, messages, decision);
+          await handleChat(req, res, messages, decision, clientGone.signal);
         } catch (error: any) {
           log.error({ err: error }, 'Chat routing error');
           if (!res.headersSent) {
@@ -1128,7 +1154,7 @@ async function startServer() {
     }
   });
 
-  async function handleChat(req: any, res: any, messages: any, decision: any) {
+  async function handleChat(req: any, res: any, messages: any, decision: any, clientSignal: AbortSignal) {
     try {
       const config = getUserConfig(req.userId!);
 
@@ -1136,7 +1162,7 @@ async function startServer() {
       let baseUrl: string;
       let apiKey: string;
 
-      if (decision.provider === 'cloud' || decision.provider === 'gemini') {
+      if (decision.provider === 'cloud') {
         baseUrl = config.cloudUrl || config.router.url;
         apiKey = config.cloudKey || config.router.key;
       } else if (decision.providerUrl) {
@@ -1153,16 +1179,12 @@ async function startServer() {
       // Per-attempt timeout: how long a single fetch may wait (covers slow model loads/swaps).
       // Providers like llama-swap can take several minutes to unload one model and load another.
       // Override with CHAT_TIMEOUT_MS env var (milliseconds).
-      const attemptTimeoutMs = parseInt(process.env.CHAT_TIMEOUT_MS || '', 10) || 300000; // 5 min default
-
-      const controller = new AbortController();
-      // Overall timeout covers all model attempts — 4× the per-attempt value
-      const timeoutId = setTimeout(() => controller.abort(), attemptTimeoutMs * 4);
+      const attemptTimeoutMs = parseInt(process.env.CHAT_TIMEOUT_MS || '', 10) || DEFAULT_CHAT_TIMEOUT_MS;
 
       // Headers will be mutated per model attempt to set the correct Authorization
       const headers: any = {
         "Content-Type": "application/json",
-        "User-Agent": "NexusOrchestrator/1.0",
+        "User-Agent": PROVIDER_USER_AGENT,
         "Accept": "application/json"
       };
       if (apiKey) {
@@ -1218,7 +1240,7 @@ async function startServer() {
         (decision.fallbackModels || []).forEach((m: string, i: number) => {
           if (!m) return;
           const fbUrl = decision.fallbackProviderUrls?.[i] || baseUrl;
-          const fbKey = decision.provider === 'cloud' || decision.provider === 'gemini'
+          const fbKey = decision.provider === 'cloud'
             ? apiKey
             : getProviderKey(config, fbUrl) || apiKey;
           result.push({ model: m, baseUrl: fbUrl, apiKey: fbKey });
@@ -1226,6 +1248,7 @@ async function startServer() {
         return result;
       };
       const modelsToTry = buildModelsToTry();
+      const includeImages = decision.category === VISION_CATEGORY;
       const showThinkingEnabled: boolean = !!req.body.showThinkingEnabled && decision.category !== 'FAST';
       log.info({ baseUrl, isOllama: ollamaUrls.has(baseUrl.replace(/\/$/, '')), showThinkingEnabled, category: decision.category }, 'Chat routing debug');
 
@@ -1282,9 +1305,9 @@ async function startServer() {
         },
       }));
       const toolList = [webSearchTool, fetchUrlTool, ...mcpToolList];
-      const MAX_TOOL_ITERATIONS = 8;
 
       let response: any = null;
+      let respondingModel = decision.model;
       let lastError: any = null;
       let localThinkingEnabled = showThinkingEnabled;
 
@@ -1317,47 +1340,12 @@ async function startServer() {
               headers,
               body: JSON.stringify({
                 model: currentModel,
-                messages: messages.map((m: any) => {
-                  let content = m.content || "";
-                  const msg: any = { role: m.role, content };
-
-                  // Handle image attachments for vision models
-                  if (m.attachments && m.attachments.length > 0) {
-                    const images = m.attachments
-                      .filter((a: any) => a.type.startsWith('image/'))
-                      .map((a: any) => {
-                        // Extract base64 part from data URL
-                        if (a.content && a.content.includes(',')) {
-                          return a.content.split(',')[1];
-                        }
-                        return a.content;
-                      });
-
-                    if (images.length > 0) {
-                      const isOllamaNative = url.endsWith('/api/chat');
-                      if (isOllamaNative) {
-                        // Ollama native /api/chat: string content + images array
-                        msg.images = images;
-                        msg.content = m.content || "Analyze this image";
-                      } else if (m.role === 'user') {
-                        // OpenAI-compat /v1/chat/completions: content as array of parts
-                        msg.content = [
-                          { type: 'text', text: m.content || "Analyze this image" },
-                          ...images.map((img: string) => ({
-                            type: 'image_url',
-                            image_url: { url: `data:image/jpeg;base64,${img}` }
-                          }))
-                        ];
-                      }
-                    }
-                  }
-                  return msg;
-                }),
+                messages: messages.map((m: any) => toProviderMessage(m, url.endsWith('/api/chat'), includeImages)),
                 stream: !searchEnabled,
                 ...(localThinkingEnabled && url.endsWith('/api/chat') ? { think: true } : {}),
                 ...(searchEnabled ? { tools: toolList, tool_choice: 'auto' } : { stream_options: { include_usage: true } })
               }),
-              signal: attemptController.signal,
+              signal: AbortSignal.any([attemptController.signal, clientSignal]),
             });
 
             clearTimeout(attemptTimeout);
@@ -1365,6 +1353,7 @@ async function startServer() {
             if (attempt.ok) {
               log.info({ url, model: currentModel }, 'Successfully routed');
               response = attempt;
+              respondingModel = currentModel;
               fullUrl = url;
               break;
             }
@@ -1396,10 +1385,10 @@ async function startServer() {
             if (attempt.status === 500 && (errText.includes("loading model") || errText.includes("model loading"))) {
               const retries = (loadingRetries.get(url) || 0) + 1;
               loadingRetries.set(url, retries);
-              if (retries <= 5) {
-                const waitMs = retries * 30000; // 30s, 60s, 90s, 120s, 150s
+              if (retries <= MODEL_LOADING_MAX_RETRIES) {
+                const waitMs = retries * MODEL_LOADING_RETRY_STEP_MS;
                 log.info({ url, retry: retries, waitMs }, 'Model loading — waiting before retry');
-                await new Promise(resolve => setTimeout(resolve, waitMs));
+                await abortableDelay(waitMs, clientSignal);
                 continue; // retry same URL — don't increment urlIndex
               }
             }
@@ -1407,6 +1396,10 @@ async function startServer() {
             // For other errors (401, 500, etc.), stop trying this model — move to next fallback
             break;
           } catch (err: any) {
+            if (clientSignal.aborted) {
+              log.info({ model: currentModel }, 'Client disconnected — chat request cancelled');
+              return;
+            }
             if (err.name === 'AbortError') {
               log.warn({ url, model: currentModel }, 'Route timed out or was aborted');
             } else {
@@ -1423,13 +1416,11 @@ async function startServer() {
         if (response) break; // Success — stop trying more models
       }
 
-      clearTimeout(timeoutId);
-
       if (!response) {
         let tip = "";
         const status = lastError?.status;
         const isAbort = !status && (lastError?.name === 'AbortError' || lastError?.message?.includes('aborted'));
-        const isVision = decision.category === 'VISION';
+        const isVision = decision.category === VISION_CATEGORY;
         if (status === 405) {
           tip = " \n\n💡 TIP: 'Method Not Allowed' (405) means the URL path is incorrect. Ensure your Provider URL is correct (e.g., add '/api' for Open WebUI).";
         } else if (status === 404) {
@@ -1463,34 +1454,12 @@ async function startServer() {
         // streaming pass with tool_choice='none' to force an answer.
         const isOllamaNative = fullUrl.endsWith('/api/chat');
 
-        // Build a message shape that mirrors the initial POST (handles image attachments).
-        const toProviderMsg = (m: any): any => {
-          const msg: any = { role: m.role, content: m.content || '' };
-          if (m.attachments?.length > 0) {
-            const images = m.attachments
-              .filter((a: any) => a.type.startsWith('image/'))
-              .map((a: any) => a.content?.includes(',') ? a.content.split(',')[1] : a.content);
-            if (images.length > 0) {
-              if (isOllamaNative) {
-                msg.images = images;
-                msg.content = m.content || 'Analyze this image';
-              } else if (m.role === 'user') {
-                msg.content = [
-                  { type: 'text', text: m.content || 'Analyze this image' },
-                  ...images.map((img: string) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${img}` } }))
-                ];
-              }
-            }
-          }
-          return msg;
-        };
-
         const workingMessages: any[] = [
           {
             role: 'system',
             content: 'You have access to web tools. Use fetch_url to retrieve the contents of any URL the user asks you to read, fetch, or summarize. Use web_search to find current information. Always call these tools rather than relying on training data for web content.',
           },
-          ...messages.map(toProviderMsg),
+          ...messages.map((m: any) => toProviderMessage(m, isOllamaNative, includeImages)),
         ];
         const accumulatedSources: SearchSource[] = [];
 
@@ -1498,7 +1467,7 @@ async function startServer() {
         let iteration = 0;
         let finalStreamed = false;
 
-        while (iteration < MAX_TOOL_ITERATIONS) {
+        while (iteration < MAX_TOOL_ITERATIONS && !clientSignal.aborted) {
           const json = await currentResponse.json() as any;
           const assistantMsg = json.choices?.[0]?.message || json.message;
           const toolCalls = assistantMsg?.tool_calls;
@@ -1589,7 +1558,7 @@ async function startServer() {
             method: 'POST',
             headers,
             body: JSON.stringify({
-              model: decision.model,
+              model: respondingModel,
               messages: workingMessages,
               stream: isFinalIteration,
               ...(localThinkingEnabled && isOllamaNative ? { think: true } : {}),
@@ -1597,7 +1566,7 @@ async function startServer() {
                 ? { stream_options: { include_usage: true } }
                 : { tools: toolList, tool_choice: 'auto' }),
             }),
-            signal: nextController.signal,
+            signal: AbortSignal.any([nextController.signal, clientSignal]),
           });
           clearTimeout(nextTimeout);
 
@@ -1607,7 +1576,7 @@ async function startServer() {
 
           if (isFinalIteration) {
             const reader = nextRes.body.getReader();
-            req.on('close', () => { reader.cancel().catch(() => {}); });
+            clientSignal.addEventListener('abort', () => { reader.cancel().catch(() => {}); }, { once: true });
             await streamSseToResponse(reader, res, localThinkingEnabled && isOllamaNative);
             finalStreamed = true;
             break;
@@ -1625,9 +1594,7 @@ async function startServer() {
           const reader = response.body.getReader();
 
           // Propagate client disconnect to the upstream provider (stops Ollama generation)
-          req.on('close', () => {
-            reader.cancel().catch(() => {});
-          });
+          clientSignal.addEventListener('abort', () => { reader.cancel().catch(() => {}); }, { once: true });
 
           await streamSseToResponse(reader, res, localThinkingEnabled && fullUrl.endsWith('/api/chat'));
         }
@@ -1635,6 +1602,10 @@ async function startServer() {
       res.end();
 
     } catch (error: any) {
+      if (clientSignal.aborted) {
+        log.info('Client disconnected — chat request cancelled');
+        return;
+      }
       log.error({ err: error }, 'Chat routing error');
       if (!res.headersSent) {
         res.status(500).json({
@@ -1677,7 +1648,7 @@ async function startServer() {
   // Single conversation with full messages
   app.get("/api/conversations/:id", authMiddleware, async (req, res) => {
     try {
-      const conv = getConversation(req.params.id, req.userId!);
+      const conv = getConversation(routeParam(req, 'id'), req.userId!);
       if (!conv) return res.status(404).json({ error: "Conversation not found" });
       res.json(conv);
     } catch (error: any) {
@@ -1699,7 +1670,7 @@ async function startServer() {
 
   app.put("/api/conversations/:id", authMiddleware, validate(updateConversationSchema), async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = routeParam(req, 'id');
       const { title, messages } = req.body;
       const updated = updateConv(id, req.userId!, { title, messages });
       if (!updated) return res.status(404).json({ error: "Conversation not found" });
@@ -1712,7 +1683,7 @@ async function startServer() {
 
   app.delete("/api/conversations/:id", authMiddleware, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = routeParam(req, 'id');
       deleteConv(id, req.userId!);
       res.json({ success: true });
     } catch (error: any) {
@@ -1744,7 +1715,7 @@ async function startServer() {
 
   app.put("/api/projects/:id", authMiddleware, validate(updateProjectSchema), (req, res) => {
     try {
-      const result = updateProject(req.params.id, req.userId!, req.body);
+      const result = updateProject(routeParam(req, 'id'), req.userId!, req.body);
       if (!result) return res.status(404).json({ error: "Project not found" });
       res.json(result);
     } catch (error: any) {
@@ -1756,7 +1727,7 @@ async function startServer() {
   app.delete("/api/projects/:id", authMiddleware, (req, res) => {
     try {
       const deleteChats = req.query.deleteChats === 'true';
-      deleteProject(req.params.id, req.userId!, deleteChats);
+      deleteProject(routeParam(req, 'id'), req.userId!, deleteChats);
       res.json({ success: true });
     } catch (error: any) {
       log.error({ err: error }, 'Error deleting project');
@@ -1767,7 +1738,7 @@ async function startServer() {
   app.patch("/api/conversations/:id/project", authMiddleware, validate(assignConversationSchema), (req, res) => {
     try {
       const { projectId } = req.body;
-      const ok = assignConversation(req.params.id, projectId, req.userId!);
+      const ok = assignConversation(routeParam(req, 'id'), projectId, req.userId!);
       if (!ok) return res.status(403).json({ error: "Project not found or access denied" });
       res.json({ success: true });
     } catch (error: any) {
@@ -1787,12 +1758,17 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
+    app.get("/{*splat}", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  // Express 5 passes listen errors (e.g. EADDRINUSE) to this callback instead of throwing
+  app.listen(PORT, "0.0.0.0", (error?: Error) => {
+    if (error) {
+      log.fatal({ err: error, port: PORT }, 'Failed to start server');
+      process.exit(1);
+    }
     log.info({ port: PORT }, 'Nexus Orchestrator active');
   });
 }

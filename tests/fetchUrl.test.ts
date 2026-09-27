@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   stripHtmlToText,
   truncateText,
   validateFetchUrl,
   FETCH_URL_MAX_BYTES,
   FETCH_URL_TRUNCATION_MARKER,
+  fetchUrlAndStrip,
+  readTextCapped,
 } from '../fetchUrl.js';
 
 describe('stripHtmlToText', () => {
@@ -132,5 +134,46 @@ describe('validateFetchUrl', () => {
 
   it('rejects malformed URLs', () => {
     expect(validateFetchUrl('not-a-url').valid).toBe(false);
+  });
+});
+
+describe('entity decoding edge cases', () => {
+  it('drops out-of-range numeric entities instead of throwing', () => {
+    expect(stripHtmlToText('<p>a&#99999999;b&#x110000;c</p>').text).toBe('abc');
+  });
+});
+
+describe('readTextCapped', () => {
+  it('stops reading at the byte cap', async () => {
+    const res = new Response('x'.repeat(1000));
+    expect(await readTextCapped(res, 100)).toHaveLength(100);
+  });
+
+  it('returns the whole body when it is under the cap', async () => {
+    expect(await readTextCapped(new Response('hello'), 100)).toBe('hello');
+  });
+});
+
+describe('fetchUrlAndStrip redirects', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('blocks a redirect to a cloud metadata endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await fetchUrlAndStrip('https://example.com/start');
+    expect(result.text).toContain('Redirect blocked');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows a safe redirect', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 301, headers: { location: '/final' } }))
+      .mockResolvedValueOnce(new Response('<title>Done</title><p>ok</p>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await fetchUrlAndStrip('https://example.com/start');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://example.com/final');
+    expect(result.source.title).toBe('Done');
   });
 });
