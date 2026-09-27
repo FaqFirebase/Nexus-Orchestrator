@@ -206,7 +206,7 @@ export default function CategoryMappings({
               <div className="relative group">
                 <input
                   type="text"
-                  placeholder="Add custom model (e.g. gemini-1.5-pro)..."
+                  placeholder="Add custom model (e.g. llama3.1:8b)..."
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       const val = e.currentTarget.value.trim();

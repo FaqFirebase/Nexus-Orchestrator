@@ -10,6 +10,14 @@ interface RouterConfigProps {
   saveConfig: (cfg: NexusConfig) => void;
 }
 
+// Small, fast OpenRouter models suited to routing. IDs checked against openrouter.ai/api/v1/models.
+const OPENROUTER_QUICK_SELECT = [
+  { label: 'Gemini 2.5 Flash Lite', id: 'google/gemini-2.5-flash-lite' },
+  { label: 'Mistral Small 3.2', id: 'mistralai/mistral-small-3.2-24b-instruct' },
+  { label: 'Claude Haiku 4.5', id: 'anthropic/claude-haiku-4.5' },
+  { label: 'MiniMax M2.5', id: 'minimax/minimax-m2.5' },
+];
+
 const ROUTER_ENGINE_OPTIONS: { id: RouterEngine; label: string; hint: string }[] = [
   { id: 'llm', label: 'Router Model (LLM)', hint: 'Any OpenAI-compatible model. Can run fully local.' },
   { id: 'jev', label: 'TypeSafe Jev', hint: 'Cloud classifier. Fast, cheap, returns category probabilities.' },
@@ -87,7 +95,7 @@ export default function RouterConfig({ config, setConfig, saveStatus, saveError,
                 value={config.router.model}
                 onChange={(e) => setConfig(prev => ({ ...prev, router: { ...prev.router, model: e.target.value } }))}
                 className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
-                placeholder="e.g. gemma3:4b or gemini-2.0-flash-lite"
+                placeholder="e.g. gemma3:4b or qwen3:4b"
               />
             </div>
           </div>
@@ -132,12 +140,7 @@ export default function RouterConfig({ config, setConfig, saveStatus, saveError,
               <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/10 space-y-2">
                 <div className="text-[9px] font-bold text-purple-400 uppercase tracking-widest">OpenRouter Quick Select</div>
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    { label: 'Gemini Flash 1.5', id: 'google/gemini-flash-1.5' },
-                    { label: 'Mistral 7B', id: 'mistralai/mistral-7b-instruct' },
-                    { label: 'Claude 3 Haiku', id: 'anthropic/claude-3-haiku' },
-                    { label: 'Minimax 2.5', id: 'minimax/minimax-01' }
-                  ].map(m => (
+                  {OPENROUTER_QUICK_SELECT.map(m => (
                     <button
                       key={m.id}
                       onClick={() => setConfig(prev => ({ ...prev, router: { ...prev.router, model: m.id } }))}
