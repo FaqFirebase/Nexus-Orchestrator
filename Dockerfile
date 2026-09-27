@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM node:20 AS builder
+FROM node:24 AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ RUN npm run build
 RUN npm prune --production
 
 # --- Production Stage ---
-FROM node:20-slim
+FROM node:24-slim
 
 WORKDIR /app
 
