@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import { ROUTER_ENGINES, DEFAULT_ROUTER_ENGINE } from './router.js';
+import { checkOutboundUrl } from './urlSafety.js';
+import {
+  MCP_SERVER_NAME_RE, MCP_TOOL_NAME_SEP, MCP_HEADER_NAME_RE, MCP_HEADER_NAME_BLOCKLIST,
+  MCP_BEARER_MAX_LEN, MCP_HEADER_VALUE_MAX_LEN, MCP_MAX_SERVERS_PER_USER,
+} from './mcpClient.js';
 
 // Auth
 export const loginSchema = z.object({
@@ -52,30 +58,27 @@ const categorySchema = z.object({
   provider: z.enum(['local', 'cloud']),
 });
 
-const mcpHeaderNameRe = /^[A-Za-z0-9_-]+$/;
-const mcpHeaderBlocklist = new Set(['host', 'content-length', 'cookie', 'origin', 'authorization', 'content-type']);
-
 const mcpHeadersSchema = z.record(
-  z.string().regex(mcpHeaderNameRe, 'Invalid header name').refine(
-    (n) => !mcpHeaderBlocklist.has(n.toLowerCase()),
+  z.string().regex(MCP_HEADER_NAME_RE, 'Invalid header name').refine(
+    (n) => !MCP_HEADER_NAME_BLOCKLIST.includes(n.toLowerCase()),
     { message: 'Header name is reserved' }
   ),
   z.string()
-    .max(4096)
+    .max(MCP_HEADER_VALUE_MAX_LEN)
     .regex(/^[\x20-\x7e]*$/, 'Header value must be printable ASCII')
 );
 
 export const mcpServerSchema = z.object({
   id: z.string().min(1),
-  name: z.string().regex(/^[a-z0-9_-]{1,32}$/, 'Name must be lowercase a-z, 0-9, _, -').refine(
-    (n) => !n.includes('__'),
-    { message: "Name cannot contain '__'" }
+  name: z.string().regex(MCP_SERVER_NAME_RE, 'Name must be lowercase a-z, 0-9, _, -').refine(
+    (n) => !n.includes(MCP_TOOL_NAME_SEP),
+    { message: `Name cannot contain '${MCP_TOOL_NAME_SEP}'` }
   ),
-  url: z.string().url().refine(
-    (u) => /^https?:\/\//i.test(u),
-    { message: 'URL must use http or https' }
-  ),
-  bearer: z.string().max(4096).optional(),
+  url: z.string().superRefine((u, ctx) => {
+    const check = checkOutboundUrl(u);
+    if (!check.ok) ctx.addIssue({ code: 'custom', message: check.reason });
+  }),
+  bearer: z.string().max(MCP_BEARER_MAX_LEN).optional(),
   headers: mcpHeadersSchema.optional(),
   enabled: z.boolean(),
 });
@@ -92,6 +95,8 @@ export const configSchema = z.object({
     model: z.string().optional().default(''),
     url: z.string().optional().default(''),
     key: z.string().optional().default(''),
+    engine: z.enum(ROUTER_ENGINES).optional().default(DEFAULT_ROUTER_ENGINE),
+    jevKey: z.string().optional().default(''),
   }).optional(),
   categories: z.record(z.string(), categorySchema).optional(),
   routerCacheEnabled: z.boolean().optional(),
@@ -100,18 +105,30 @@ export const configSchema = z.object({
     url: z.string().optional().default(''),
     alwaysOn: z.boolean().optional().default(false),
   }).optional(),
-  mcpServers: z.array(mcpServerSchema).max(10).optional(),
+  mcpServers: z.array(mcpServerSchema).max(MCP_MAX_SERVERS_PER_USER).optional(),
 });
 
 // Router
+const MAX_AVAILABLE_MODELS = 500;
+
 export const routerSchema = z.object({
   prompt: z.string().min(1, 'Prompt is required'),
+  hasAttachments: z.boolean().optional().default(false),
+  availableModels: z.array(z.string()).max(MAX_AVAILABLE_MODELS).optional().default([]),
 });
 
 // Chat
+// Only the fields the server forwards to providers; other client fields (id, size, preview) are dropped.
+const attachmentSchema = z.object({
+  name: z.string().optional(),
+  type: z.string(),
+  content: z.string(),
+});
+
 const messageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
   content: z.union([z.string(), z.array(z.any())]),
+  attachments: z.array(attachmentSchema).optional(),
 });
 
 const decisionSchema = z.object({
@@ -120,7 +137,7 @@ const decisionSchema = z.object({
   providerUrl: z.string().optional(),
   fallbackModels: z.array(z.string()).optional(),
   fallbackProviderUrls: z.array(z.string()).optional(),
-  provider: z.enum(['local', 'cloud', 'gemini']),
+  provider: z.enum(['local', 'cloud']),
   reasoning: z.string().optional(),
   confidence: z.number().optional(),
   routerModel: z.string().optional(),

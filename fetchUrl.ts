@@ -2,10 +2,17 @@
 // Kept as a standalone module so the pure HTML-strip logic is unit-testable
 // without importing server.ts (which boots the HTTP server on load).
 
+import { checkOutboundUrl } from './urlSafety.js';
+
 export const FETCH_URL_TIMEOUT_MS = 15000;
 export const FETCH_URL_MAX_BYTES = 50 * 1024; // ~12k tokens, fits all modern context windows
 export const FETCH_URL_SNIPPET_LEN = 200;
 export const FETCH_URL_TRUNCATION_MARKER = '\n\n...[content truncated]';
+/** Raw bytes read before HTML stripping; the stripped text is then capped at FETCH_URL_MAX_BYTES. */
+export const FETCH_URL_MAX_RAW_BYTES = 2 * 1024 * 1024;
+export const FETCH_URL_MAX_REDIRECTS = 5;
+const MAX_CODE_POINT = 0x10FFFF;
+const HTTP_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 export const FETCH_URL_USER_AGENT = 'NexusOrchestrator/1.0 (+https://github.com/FaqFirebase/Nexus-Orchestrator)';
 
 export interface FetchedSource {
@@ -38,16 +45,15 @@ const NAMED_ENTITIES: Record<string, string> = {
   rdquo: '”',
 };
 
+/** Out-of-range code points (e.g. &#99999999;) decode to '' instead of throwing RangeError. */
+function codePointToString(code: number): string {
+  return Number.isInteger(code) && code >= 0 && code <= MAX_CODE_POINT ? String.fromCodePoint(code) : '';
+}
+
 function decodeEntities(s: string): string {
   return s
-    .replace(/&#(\d+);/g, (_, n) => {
-      const code = parseInt(n, 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : '';
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => {
-      const code = parseInt(n, 16);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : '';
-    })
+    .replace(/&#(\d+);/g, (_, n) => codePointToString(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => codePointToString(parseInt(n, 16)))
     .replace(/&([a-zA-Z]+);/g, (m, name) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
 }
 
@@ -93,32 +99,47 @@ export function truncateText(text: string, maxBytes: number): { text: string; tr
   return { text: text.slice(0, lo) + FETCH_URL_TRUNCATION_MARKER, truncated: true };
 }
 
-// Validates URL allow-list parity with server.ts validateUrl (cloud metadata blocked,
-// non-http(s) blocked, LAN allowed). Duplicated here to keep this module standalone.
-const BLOCKED_HOSTS = [
-  '169.254.169.254',
-  'metadata.google.internal',
-  'metadata.internal',
-  'kubernetes.default.svc',
-];
-
 export function validateFetchUrl(url: string): { valid: boolean; reason?: string } {
   if (!url || !url.trim()) return { valid: false, reason: 'URL is empty' };
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return { valid: false, reason: `Invalid URL scheme "${parsed.protocol}"` };
-    }
-    if (BLOCKED_HOSTS.includes(parsed.hostname)) {
-      return { valid: false, reason: `Blocked host "${parsed.hostname}"` };
-    }
-    if (parsed.hostname === '[::1]' || parsed.hostname === '::1') {
-      return { valid: false, reason: 'IPv6 loopback is not allowed' };
-    }
-    return { valid: true };
-  } catch {
-    return { valid: false, reason: 'Malformed URL' };
+  const check = checkOutboundUrl(url);
+  return check.ok ? { valid: true } : { valid: false, reason: check.reason };
+}
+
+/** Follows redirects by hand so every hop passes the same outbound URL check as the first request. */
+async function fetchWithCheckedRedirects(startUrl: string, signal: AbortSignal): Promise<Response> {
+  let url = startUrl;
+  for (let hop = 0; hop <= FETCH_URL_MAX_REDIRECTS; hop++) {
+    const res = await fetch(url, {
+      signal,
+      headers: { 'User-Agent': FETCH_URL_USER_AGENT, 'Accept': 'text/html,text/plain,*/*' },
+      redirect: 'manual',
+    });
+    const location = res.headers.get('location');
+    if (!HTTP_REDIRECT_STATUSES.has(res.status) || !location) return res;
+
+    await res.body?.cancel().catch(() => {}); // free the redirect hop's socket
+    const next = new URL(location, url).toString();
+    const check = validateFetchUrl(next);
+    if (!check.valid) throw new Error(`Redirect blocked: ${check.reason}`);
+    url = next;
   }
+  throw new Error(`Too many redirects (more than ${FETCH_URL_MAX_REDIRECTS})`);
+}
+
+/** Reads at most maxBytes of the body, then cancels the rest of the stream. */
+export async function readTextCapped(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (total < maxBytes) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  if (total >= maxBytes) await reader.cancel().catch(() => {});
+  return Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8');
 }
 
 // Fetch a URL, strip to plain text, truncate. Returns an LLM-friendly result.
@@ -129,11 +150,7 @@ export async function fetchUrlAndStrip(rawUrl: string): Promise<FetchUrlResult> 
     return { text: `Fetch error: ${check.reason}`, source: { ...errorSource, snippet: check.reason || '' } };
   }
   try {
-    const res = await fetch(rawUrl, {
-      signal: AbortSignal.timeout(FETCH_URL_TIMEOUT_MS),
-      headers: { 'User-Agent': FETCH_URL_USER_AGENT, 'Accept': 'text/html,text/plain,*/*' },
-      redirect: 'follow',
-    });
+    const res = await fetchWithCheckedRedirects(rawUrl, AbortSignal.timeout(FETCH_URL_TIMEOUT_MS));
 
     if (!res.ok) {
       return {
@@ -153,7 +170,7 @@ export async function fetchUrlAndStrip(rawUrl: string): Promise<FetchUrlResult> 
       };
     }
 
-    const body = await res.text();
+    const body = await readTextCapped(res, FETCH_URL_MAX_RAW_BYTES);
     const { title, text } = stripHtmlToText(body);
     const { text: capped, truncated } = truncateText(text, FETCH_URL_MAX_BYTES);
     const snippet = text.slice(0, FETCH_URL_SNIPPET_LEN).replace(/\s+/g, ' ').trim();

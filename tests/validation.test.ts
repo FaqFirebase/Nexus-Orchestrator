@@ -137,6 +137,18 @@ describe('chatSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('keeps image attachments so they reach the provider', () => {
+    const attachment = { id: 'a1', name: 'cat.png', type: 'image/png', size: 3, content: 'data:image/png;base64,AAA' };
+    const result = chatSchema.safeParse({
+      messages: [{ role: 'user', content: 'what is this?', attachments: [attachment] }],
+      decision: validDecision,
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.messages[0].attachments).toEqual([
+      { name: 'cat.png', type: 'image/png', content: 'data:image/png;base64,AAA' },
+    ]);
+  });
+
   it('rejects empty messages array', () => {
     const result = chatSchema.safeParse({
       messages: [],

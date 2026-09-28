@@ -3,11 +3,19 @@
 // Kept as a standalone module so pure helpers and cache logic are unit-testable
 // without importing server.ts (which boots the HTTP server on load).
 
+import { readFileSync } from 'fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import logger from './logger.js';
+import { checkOutboundUrl, type OutboundUrlIssue } from './urlSafety.js';
 
 const log = logger.child({ module: 'mcpClient' });
+
+/** Identifies Nexus to MCP servers; version tracks package.json so it never drifts. */
+const MCP_CLIENT_INFO = {
+  name: 'nexus-orchestrator',
+  version: (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version,
+};
 
 export const MCP_CACHE_TTL_MS = 5 * 60 * 1000;
 export const MCP_TOOL_NAME_SEP = '__';
@@ -25,6 +33,7 @@ export const MCP_TOOL_TIMEOUT_MS = 30_000;
 export const MCP_LIST_TIMEOUT_MS = 15_000;
 export const MCP_MAX_SERVERS_PER_USER = 10;
 export const MCP_BEARER_MAX_LEN = 4096;
+export const MCP_HEADER_VALUE_MAX_LEN = 4096;
 
 export function prefixToolName(serverName: string, toolName: string): string {
   return `${serverName}${MCP_TOOL_NAME_SEP}${toolName}`;
@@ -49,12 +58,12 @@ export interface McpServer {
   enabled: boolean;
 }
 
-const METADATA_HOSTS = new Set([
-  '169.254.169.254',
-  'metadata.google.internal',
-  'metadata.internal',
-  'kubernetes.default.svc',
-]);
+const URL_ISSUE_REASONS: Record<OutboundUrlIssue, string> = {
+  malformed: 'invalid_url',
+  scheme: 'invalid_scheme',
+  metadata: 'metadata_endpoint_blocked',
+  loopback: 'loopback_blocked',
+};
 
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
@@ -63,21 +72,9 @@ export function validateMcpServer(s: McpServer): ValidationResult {
     return { ok: false, reason: 'invalid_name' };
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(s.url);
-  } catch {
-    return { ok: false, reason: 'invalid_url' };
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return { ok: false, reason: 'invalid_scheme' };
-  }
-  const host = parsed.hostname.toLowerCase();
-  if (METADATA_HOSTS.has(host)) {
-    return { ok: false, reason: 'metadata_endpoint_blocked' };
-  }
-  if (host === '::1' || host === '[::1]') {
-    return { ok: false, reason: 'loopback_blocked' };
+  const urlCheck = checkOutboundUrl(s.url);
+  if (!urlCheck.ok) {
+    return { ok: false, reason: URL_ISSUE_REASONS[urlCheck.issue] };
   }
 
   if (s.bearer != null && s.bearer.length > MCP_BEARER_MAX_LEN) {
@@ -221,7 +218,7 @@ export async function listMcpTools(userId: string, server: McpServer): Promise<L
     return { tools: [], healthy: false, errorKind: 'unknown' };
   }
 
-  const client = new Client({ name: 'nexus-orchestrator', version: '1.3.0' });
+  const client = new Client(MCP_CLIENT_INFO);
   const transport = new StreamableHTTPClientTransport(new URL(server.url), {
     requestInit: { headers: buildHeaders(server) },
   });
@@ -279,7 +276,7 @@ export async function callMcpTool(
     };
   }
 
-  const client = new Client({ name: 'nexus-orchestrator', version: '1.3.0' });
+  const client = new Client(MCP_CLIENT_INFO);
   const transport = new StreamableHTTPClientTransport(new URL(server.url), {
     requestInit: { headers: buildHeaders(server) },
   });
@@ -305,7 +302,7 @@ export async function callMcpTool(
   } catch (err) {
     const errorKind = classifyMcpError(err);
     const messageByKind: Record<McpErrorKind, string> = {
-      auth: `Error: MCP server ${server.name} authentication failed. Check the bearer token in System tab.`,
+      auth: `Error: MCP server ${server.name} authentication failed. Check the bearer token in the Models tab.`,
       protocol: `Error: MCP server ${server.name} unreachable.`,
       not_found: `Error: tool ${prefixedToolName} is no longer available. The server's tool list has been refreshed.`,
       tool: 'Error: MCP tool call failed.',

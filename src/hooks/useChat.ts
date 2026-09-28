@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { Message, Attachment, RoutingDecision, NexusConfig } from '../types';
+import type { Message, Attachment, RoutingDecision, NexusConfig, McpErrorKind } from '../types';
 
 interface UseChatDeps {
   messages: Message[];
@@ -13,7 +13,9 @@ interface UseChatDeps {
   showThinkingEnabled: boolean;
 }
 
-const PLACEHOLDER_TITLES = ['New Chat', 'New Conversation', 'New Orchestration'];
+const DEFAULT_CONVERSATION_TITLE = 'New Orchestration';
+const PLACEHOLDER_TITLES = ['New Chat', 'New Conversation', DEFAULT_CONVERSATION_TITLE];
+const TITLE_MAX_LENGTH = 40;
 
 export function useChat(deps: UseChatDeps) {
   const {
@@ -65,61 +67,21 @@ export function useChat(deps: UseChatDeps) {
   }, []);
 
   const routeIntent = useCallback(async (prompt: string, hasAttachments: boolean): Promise<RoutingDecision> => {
-    const modelList = localModels.map(m => m.name).join(', ');
-
-    const categoriesPrompt = Object.entries(config.categories).map(([cat, cfg]) => {
-      const modelNames = cfg.models.map((m: any) => (typeof m === 'string' ? m : m.name)).join(', ');
-      return `- ${cat}: ${modelNames} (${cfg.provider})`;
-    }).join('\n');
-
-    const systemPrompt = `Analyze this user prompt and decide which model category is best.
-      Prompt: "${prompt}"
-      Has Attachments: ${hasAttachments}
-
-      Available Models on User's System: ${modelList || "llama3.1, codellama, llava, mistral"}
-
-      Category Definitions (use these to decide):
-      - CODING: Writing, debugging, reviewing, or explaining code. Any request involving programming languages, scripts, algorithms, or software development.
-      - REASONING: Complex analysis, comparisons, multi-step logic, math, science explanations, strategic thinking, or anything requiring deep thought.
-      - CREATIVE: Writing stories, poems, marketing copy, brainstorming, humor, or any open-ended creative task.
-      - VISION: ONLY when the user has attached an image and wants it analyzed, described, or interpreted. Requires Has Attachments = true with an image.
-      - DOCUMENT: ONLY when the user has attached a document (PDF, text file) and wants it summarized, analyzed, or queried. Requires Has Attachments = true.
-      - FAST: ONLY for pure micro-interactions with no knowledge retrieval — greetings ("hi", "hello", "thanks"), single-word acknowledgements, or arithmetic so trivial it needs no explanation ("what is 2+2"). If the prompt asks ANY question about the world, a concept, a fact, a person, a technology, or requires more than one sentence to answer properly, do NOT use FAST.
-      - SECURITY: Security analysis, vulnerability assessment, threat modeling, CTF challenges, penetration testing, malware analysis, or cybersecurity topics.
-      - GENERAL: The default for all conversational queries, factual questions, explanations, summaries, and anything that does not clearly fit a more specific category above. When in doubt, use GENERAL.
-
-      Configured Categories and Models:
-      ${categoriesPrompt}
-
-      Rules:
-      - Only select VISION or DOCUMENT if Has Attachments is true.
-      - Prefer REASONING over GENERAL for questions that require explanation, comparison, or analysis.
-      - Prefer CODING over GENERAL for anything code-related, even if the question is simple.
-      - Prefer SECURITY over GENERAL for anything security/hacking/CTF related.
-      - Default to GENERAL over FAST. Only use FAST for greetings, one-word replies, or arithmetic with no explanation needed.
-      - If the answer requires retrieving, explaining, or describing any fact or concept, use GENERAL not FAST.
-      - Only use categories that appear in the configured list above.
-
-      Return ONLY a JSON object with the following structure:
-      {
-        "category": "ONE_OF_THE_CATEGORIES",
-        "model": "specific_model_name",
-        "provider": "local" | "cloud",
-        "reasoning": "short explanation",
-        "confidence": 0.0-1.0
-      }`;
-
     const res = await fetch(`${window.location.origin}/api/router`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: systemPrompt })
+      body: JSON.stringify({
+        prompt,
+        hasAttachments,
+        availableModels: localModels.map(m => m.name),
+      })
     });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || "Router failed");
     }
     return await res.json();
-  }, [config, localModels]);
+  }, [localModels]);
 
   const handleSend = useCallback(async () => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return;
@@ -135,7 +97,7 @@ export function useChat(deps: UseChatDeps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title: input.trim().slice(0, 40) || "New Orchestration",
+            title: input.trim().slice(0, TITLE_MAX_LENGTH) || DEFAULT_CONVERSATION_TITLE,
             messages: []
           })
         });
@@ -160,6 +122,32 @@ export function useChat(deps: UseChatDeps) {
     };
 
     setMessages(prev => [...prev, userMsg]);
+
+    // This send's own copy of the exchange. Saving from it (not from React state) keeps the
+    // right conversation intact even if the user switches chats while the reply streams.
+    const history = messages;
+    let assistantState: Message | null = null;
+    const updateAssistant = (patch: (m: Message) => Partial<Message>) => {
+      if (!assistantState) return;
+      assistantState = { ...assistantState, ...patch(assistantState) };
+      const next = assistantState;
+      setMessages(msgs => msgs.map(m => (m.id === next.id ? next : m)));
+    };
+    const persistConversation = (finalMessages: Message[]) => {
+      if (!currentConvId) return;
+      const convId = currentConvId;
+      const updateData: { messages: Message[]; title?: string } = { messages: finalMessages };
+      if (isNew) {
+        updateData.title = userMsg.content.trim().slice(0, TITLE_MAX_LENGTH) || DEFAULT_CONVERSATION_TITLE;
+      }
+      fetch(`${window.location.origin}/api/conversations/${convId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData)
+      }).then(() => {
+        setConversations(prev => prev.map(c => (c.id === convId ? { ...c, ...updateData } : c)));
+      }).catch(err => console.error('Failed to save conversation', err));
+    };
     setInput('');
     setAttachments([]);
     setIsLoading(true);
@@ -245,7 +233,9 @@ export function useChat(deps: UseChatDeps) {
         decision,
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, assistantMsg]);
+      assistantState = assistantMsg;
+      // Only show the placeholder if this chat is still on screen
+      setMessages(prev => (prev.some(m => m.id === userMsg.id) ? [...prev, assistantMsg] : prev));
       setRoutingStep('generating');
 
       const response = await fetch(`${window.location.origin}/api/chat`, {
@@ -286,57 +276,41 @@ export function useChat(deps: UseChatDeps) {
 
               if (json.searching) {
                 setRoutingStep('searching');
-                setMessages(msgs =>
-                  msgs.map(m =>
-                    m.id === assistantMsg.id ? { ...m, webSearchQuery: json.query } : m
-                  )
-                );
+                updateAssistant(() => ({ webSearchQuery: json.query }));
                 continue;
               }
 
               if (json.fetching) {
                 setRoutingStep('searching');
-                setMessages(msgs =>
-                  msgs.map(m =>
-                    m.id === assistantMsg.id ? { ...m, webFetchUrl: json.url, webFetchHost: json.host } : m
-                  )
-                );
+                updateAssistant(() => ({ webFetchUrl: json.url, webFetchHost: json.host }));
                 continue;
               }
 
               if (json.sources) {
-                setMessages(msgs =>
-                  msgs.map(m =>
-                    m.id === assistantMsg.id ? { ...m, webSearchSources: json.sources } : m
-                  )
-                );
+                updateAssistant(() => ({ webSearchSources: json.sources }));
                 continue;
               }
 
               if (json.tool_called) {
                 const tc = json.tool_called as { serverId: string; serverName: string; toolName: string; args?: unknown };
                 setRoutingStep('searching');
-                setMessages(msgs => msgs.map(m => {
-                  if (m.id !== assistantMsg.id) return m;
-                  const calls = m.mcpToolCalls || [];
-                  return { ...m, mcpToolCalls: [...calls, { serverId: tc.serverId, serverName: tc.serverName, toolName: tc.toolName, args: tc.args }] };
+                updateAssistant(m => ({
+                  mcpToolCalls: [...(m.mcpToolCalls || []), { serverId: tc.serverId, serverName: tc.serverName, toolName: tc.toolName, args: tc.args }],
                 }));
                 continue;
               }
 
               if (json.tool_result) {
                 const tr = json.tool_result as { serverId: string; isError: boolean; errorKind?: string; durationMs?: number };
-                setMessages(msgs => msgs.map(m => {
-                  if (m.id !== assistantMsg.id) return m;
+                updateAssistant(m => {
                   const calls = m.mcpToolCalls || [];
-                  if (calls.length === 0) return m;
                   const reversedIdx = [...calls].reverse().findIndex(c => c.serverId === tr.serverId && c.isError === undefined);
-                  if (reversedIdx < 0) return m;
+                  if (reversedIdx < 0) return {};
                   const realIdx = calls.length - 1 - reversedIdx;
                   const updated = [...calls];
-                  updated[realIdx] = { ...updated[realIdx], isError: tr.isError, errorKind: tr.errorKind as any, durationMs: tr.durationMs };
-                  return { ...m, mcpToolCalls: updated };
-                }));
+                  updated[realIdx] = { ...updated[realIdx], isError: tr.isError, errorKind: tr.errorKind as McpErrorKind, durationMs: tr.durationMs };
+                  return { mcpToolCalls: updated };
+                });
                 continue;
               }
 
@@ -346,17 +320,9 @@ export function useChat(deps: UseChatDeps) {
               }
 
               if (json.usage) {
-                setMessages(msgs =>
-                  msgs.map(m =>
-                    m.id === assistantMsg.id ? { ...m, content: accumulatedContent, usage: json.usage } : m
-                  )
-                );
+                updateAssistant(() => ({ content: accumulatedContent, usage: json.usage }));
               } else if (json.message?.content) {
-                setMessages(msgs =>
-                  msgs.map(m =>
-                    m.id === assistantMsg.id ? { ...m, content: accumulatedContent } : m
-                  )
-                );
+                updateAssistant(() => ({ content: accumulatedContent }));
               }
             } catch (e) {
               // Handle partial JSON or stream artifacts
@@ -365,40 +331,24 @@ export function useChat(deps: UseChatDeps) {
         }
       }
 
-      // Save the complete conversation
-      setMessages(finalMessages => {
-        if (currentConvId) {
-          const updateData: any = { messages: finalMessages };
-          if (isNew) {
-            updateData.title = input.trim().slice(0, 40) || "New Orchestration";
-          }
-
-          fetch(`${window.location.origin}/api/conversations/${currentConvId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updateData)
-          }).then(() => {
-            setConversations(prev => prev.map(c =>
-              c.id === currentConvId ? { ...c, ...updateData } : c
-            ));
-          });
-        }
-        return finalMessages;
-      });
+      persistConversation([...history, userMsg, assistantState ?? assistantMsg]);
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        // User stopped generation — no error message needed
+        // User stopped generation — keep the exchange, including any partial reply
+        persistConversation(assistantState ? [...history, userMsg, assistantState] : [...history, userMsg]);
       } else {
         const isRouterError = error.message.includes('Router');
-        setMessages(prev => [...prev, {
+        const errorMsg: Message = {
           id: 'error-' + Date.now(),
           role: 'assistant',
           content: isRouterError
             ? `[Router Error]: ${error.message}`
             : `[Nexus Error]: ${error.message}. Please verify your local provider is active.`,
           timestamp: new Date()
-        }]);
+        };
+        setMessages(prev => (prev.some(m => m.id === userMsg.id) ? [...prev, errorMsg] : prev));
+        persistConversation([...history, userMsg, ...(assistantState ? [assistantState] : []), errorMsg]);
       }
     } finally {
       setIsLoading(false);

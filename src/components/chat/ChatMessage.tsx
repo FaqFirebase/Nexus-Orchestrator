@@ -279,7 +279,7 @@ export default function ChatMessage({ msg, showThinkingEnabled = true }: ChatMes
                       <div className="text-[11px] font-semibold text-zinc-200">
                         [{tc.serverName}] {tc.toolName}
                       </div>
-                      {tc.args && typeof tc.args === 'object' && Object.keys(tc.args as object).length > 0 && (
+                      {!!tc.args && typeof tc.args === 'object' && Object.keys(tc.args).length > 0 && (
                         <pre className="text-[10px] text-zinc-500 mt-1 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(tc.args, null, 2)}</pre>
                       )}
                       {tc.errorKind && <div className="text-[10px] text-red-400 mt-1">Error: {tc.errorKind}</div>}

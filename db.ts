@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS admin_settings (
 
 // --- Init ---
 
-export async function initDb(encryptionSecret: string, defaultConfig: any): Promise<any> {
+export async function initDb(encryptionSecret: string, defaultConfig: any): Promise<void> {
   await fs.mkdir(CONFIG_DIR, { recursive: true });
 
   db = new Database(DB_PATH);
@@ -116,19 +116,13 @@ export async function initDb(encryptionSecret: string, defaultConfig: any): Prom
   if (!adminSettingsRow) {
     db.prepare('INSERT INTO admin_settings (id, data) VALUES (1, ?)').run(JSON.stringify({ registrationEnabled: false }));
   }
-
-  return readConfig(encryptionSecret);
 }
 
 // --- Admin bootstrap ---
 
-export function bootstrapAdmin(adminApiKey: string, encryptionSecret: string, defaultConfig: any): string {
+export function bootstrapAdmin(adminApiKey: string, encryptionSecret: string, defaultConfig: any): void {
   const existingUsers = db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
-  if (existingUsers.count > 0) {
-    // Already have users — return existing admin ID
-    const admin = db.prepare('SELECT id FROM users WHERE role = ? LIMIT 1').get('admin') as any;
-    return admin?.id || '';
-  }
+  if (existingUsers.count > 0) return;
 
   log.info('No users found — bootstrapping admin account from ADMIN_API_KEY');
   const adminId = crypto.randomUUID();
@@ -136,7 +130,7 @@ export function bootstrapAdmin(adminApiKey: string, encryptionSecret: string, de
   const createdAt = new Date().toISOString();
 
   db.prepare('INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(adminId, 'admin', passwordHash, 'admin', createdAt);
+    .run(adminId, ADMIN_USERNAME, passwordHash, 'admin', createdAt);
 
   // Copy global config to admin's user config
   const globalConfig = readConfig(encryptionSecret);
@@ -151,10 +145,12 @@ export function bootstrapAdmin(adminApiKey: string, encryptionSecret: string, de
   db.prepare('UPDATE projects SET user_id = ? WHERE user_id IS NULL').run(adminId);
 
   log.info({ userId: adminId }, 'Admin account created (username: admin)');
-  return adminId;
 }
 
 // --- Users ---
+
+/** Username of the account bootstrapped from ADMIN_API_KEY. */
+export const ADMIN_USERNAME = 'admin';
 
 export function createUser(username: string, passwordHash: string, role: 'admin' | 'user' = 'user'): any {
   const id = crypto.randomUUID();
@@ -244,18 +240,25 @@ function migrateConfig(config: any): any {
   return config;
 }
 
-function decryptProviderKeys(config: any, encryptionSecret: string): void {
+type SecretTransform = (value: string, encryptionSecret: string) => string;
+
+/** Applies encrypt or decrypt to every stored secret in a config object, in place. */
+function transformConfigSecrets(config: any, transform: SecretTransform, encryptionSecret: string): void {
+  if (config.localKey) config.localKey = transform(config.localKey, encryptionSecret);
+  if (config.cloudKey) config.cloudKey = transform(config.cloudKey, encryptionSecret);
+  if (config.router?.key) config.router.key = transform(config.router.key, encryptionSecret);
+  if (config.router?.jevKey) config.router.jevKey = transform(config.router.jevKey, encryptionSecret);
   if (config.localProviders) {
     for (const p of config.localProviders) {
-      if (p.key) p.key = decrypt(p.key, encryptionSecret);
+      if (p.key) p.key = transform(p.key, encryptionSecret);
     }
   }
-}
-
-function encryptProviderKeys(clone: any, encryptionSecret: string): void {
-  if (clone.localProviders) {
-    for (const p of clone.localProviders) {
-      if (p.key) p.key = encrypt(p.key, encryptionSecret);
+  if (config.mcpServers) {
+    for (const server of config.mcpServers) {
+      if (server.bearer) server.bearer = transform(server.bearer, encryptionSecret);
+      for (const name of Object.keys(server.headers || {})) {
+        server.headers[name] = transform(server.headers[name], encryptionSecret);
+      }
     }
   }
 }
@@ -266,19 +269,13 @@ export function readUserConfig(userId: string, encryptionSecret: string): any | 
   const row = db.prepare('SELECT data FROM user_configs WHERE user_id = ?').get(userId) as any;
   if (!row) return null;
   const config = JSON.parse(row.data);
-  if (config.localKey) config.localKey = decrypt(config.localKey, encryptionSecret);
-  if (config.cloudKey) config.cloudKey = decrypt(config.cloudKey, encryptionSecret);
-  if (config.router?.key) config.router.key = decrypt(config.router.key, encryptionSecret);
-  decryptProviderKeys(config, encryptionSecret);
+  transformConfigSecrets(config, decrypt, encryptionSecret);
   return migrateConfig(config);
 }
 
 export function writeUserConfig(userId: string, config: any, encryptionSecret: string): void {
   const clone = JSON.parse(JSON.stringify(config));
-  if (clone.localKey) clone.localKey = encrypt(clone.localKey, encryptionSecret);
-  if (clone.cloudKey) clone.cloudKey = encrypt(clone.cloudKey, encryptionSecret);
-  if (clone.router?.key) clone.router.key = encrypt(clone.router.key, encryptionSecret);
-  encryptProviderKeys(clone, encryptionSecret);
+  transformConfigSecrets(clone, encrypt, encryptionSecret);
   const json = JSON.stringify(clone);
   db.prepare('INSERT OR REPLACE INTO user_configs (user_id, data) VALUES (?, ?)').run(userId, json);
 }
@@ -289,19 +286,13 @@ export function readConfig(encryptionSecret: string): any {
   const row = db.prepare('SELECT data FROM config WHERE id = 1').get() as any;
   if (!row) return null;
   const config = JSON.parse(row.data);
-  if (config.localKey) config.localKey = decrypt(config.localKey, encryptionSecret);
-  if (config.cloudKey) config.cloudKey = decrypt(config.cloudKey, encryptionSecret);
-  if (config.router?.key) config.router.key = decrypt(config.router.key, encryptionSecret);
-  decryptProviderKeys(config, encryptionSecret);
+  transformConfigSecrets(config, decrypt, encryptionSecret);
   return migrateConfig(config);
 }
 
 export function writeConfig(config: any, encryptionSecret: string): void {
   const clone = JSON.parse(JSON.stringify(config));
-  if (clone.localKey) clone.localKey = encrypt(clone.localKey, encryptionSecret);
-  if (clone.cloudKey) clone.cloudKey = encrypt(clone.cloudKey, encryptionSecret);
-  if (clone.router?.key) clone.router.key = encrypt(clone.router.key, encryptionSecret);
-  encryptProviderKeys(clone, encryptionSecret);
+  transformConfigSecrets(clone, encrypt, encryptionSecret);
   const json = JSON.stringify(clone);
   db.prepare('INSERT OR REPLACE INTO config (id, data) VALUES (1, ?)').run(json);
 }
@@ -324,18 +315,10 @@ export function listConversations(userId: string): any[] {
 }
 
 // Paginated listing — returns metadata only (no messages)
-export function listConversationsPaginated(limit: number, offset: number, userId: string, projectId?: string | null): { conversations: any[]; total: number } {
-  let whereClause = 'WHERE user_id = ?';
-  const params: any[] = [userId];
-  if (projectId === null) {
-    whereClause += ' AND project_id IS NULL';
-  } else if (projectId !== undefined) {
-    whereClause += ' AND project_id = ?';
-    params.push(projectId);
-  }
-  const totalRow = db.prepare(`SELECT COUNT(*) as count FROM conversations ${whereClause}`).get(...params) as any;
+export function listConversationsPaginated(limit: number, offset: number, userId: string): { conversations: any[]; total: number } {
+  const totalRow = db.prepare('SELECT COUNT(*) as count FROM conversations WHERE user_id = ?').get(userId) as any;
   const total = totalRow.count;
-  const convRows = db.prepare(`SELECT id, title, updated_at, project_id FROM conversations ${whereClause} ORDER BY updated_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset) as any[];
+  const convRows = db.prepare('SELECT id, title, updated_at, project_id FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?').all(userId, limit, offset) as any[];
   const conversations = convRows.map(conv => ({
     id: conv.id,
     title: conv.title,
@@ -363,12 +346,12 @@ export function getConversation(id: string, userId: string): any | null {
 
 // Transactional functions — lazily create transactions after db is initialized
 function getCreateConversation() {
-  return db.transaction((title: string, messages: any[], userId: string, projectId?: string | null) => {
+  return db.transaction((title: string, messages: any[], userId: string) => {
     const id = crypto.randomUUID();
     const updatedAt = new Date().toISOString();
-    db.prepare('INSERT INTO conversations (id, title, updated_at, project_id, user_id) VALUES (?, ?, ?, ?, ?)').run(id, title || 'New Conversation', updatedAt, projectId ?? null, userId);
+    db.prepare('INSERT INTO conversations (id, title, updated_at, project_id, user_id) VALUES (?, ?, ?, NULL, ?)').run(id, title || 'New Conversation', updatedAt, userId);
     insertMessages(id, messages);
-    return { id, title: title || 'New Conversation', messages, updatedAt, projectId: projectId ?? null };
+    return { id, title: title || 'New Conversation', messages, updatedAt, projectId: null };
   });
 }
 
@@ -398,8 +381,8 @@ function getDeleteConversation() {
 }
 
 // Public wrappers that lazily create transactions
-export function createConv(title: string, messages: any[], userId: string, projectId?: string | null): any {
-  return getCreateConversation()(title, messages, userId, projectId);
+export function createConv(title: string, messages: any[], userId: string): any {
+  return getCreateConversation()(title, messages, userId);
 }
 
 export function updateConv(id: string, userId: string, updates: { title?: string; messages?: any[] }): any | null {

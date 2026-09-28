@@ -1,5 +1,5 @@
-import { BrainCircuit, Network, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
-import type { NexusConfig } from '../../types';
+import { BrainCircuit, Network, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronRight, KeyRound } from 'lucide-react';
+import type { NexusConfig, RouterEngine } from '../../types';
 import { usePersistentToggle } from '../../hooks/usePersistentToggle';
 
 interface RouterConfigProps {
@@ -10,8 +10,22 @@ interface RouterConfigProps {
   saveConfig: (cfg: NexusConfig) => void;
 }
 
+// Small, fast OpenRouter models suited to routing. IDs checked against openrouter.ai/api/v1/models.
+const OPENROUTER_QUICK_SELECT = [
+  { label: 'Gemini 2.5 Flash Lite', id: 'google/gemini-2.5-flash-lite' },
+  { label: 'Mistral Small 3.2', id: 'mistralai/mistral-small-3.2-24b-instruct' },
+  { label: 'Claude Haiku 4.5', id: 'anthropic/claude-haiku-4.5' },
+  { label: 'MiniMax M2.5', id: 'minimax/minimax-m2.5' },
+];
+
+const ROUTER_ENGINE_OPTIONS: { id: RouterEngine; label: string; hint: string }[] = [
+  { id: 'llm', label: 'Router Model (LLM)', hint: 'Any OpenAI-compatible model. Can run fully local.' },
+  { id: 'jev', label: 'TypeSafe Jev', hint: 'Cloud classifier. Fast, cheap, returns category probabilities.' },
+];
+
 export default function RouterConfig({ config, setConfig, saveStatus, saveError, saveConfig }: RouterConfigProps) {
   const [visible, toggleVisible] = usePersistentToggle('nexus:section:router-config', true);
+  const isJev = config.router.engine === 'jev';
 
   return (
     <div className="p-6 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
@@ -30,21 +44,58 @@ export default function RouterConfig({ config, setConfig, saveStatus, saveError,
 
       {visible && (
         <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Routing Engine</label>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {ROUTER_ENGINE_OPTIONS.map(option => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setConfig(prev => ({ ...prev, router: { ...prev.router, engine: option.id } }))}
+                  className={`text-left px-4 py-2 rounded-xl border transition-all ${config.router.engine === option.id ? 'border-purple-500/50 bg-purple-500/10' : 'border-zinc-800 bg-black/50 hover:border-zinc-700'}`}
+                >
+                  <div className={`text-xs font-bold ${config.router.engine === option.id ? 'text-purple-300' : 'text-zinc-300'}`}>{option.label}</div>
+                  <div className="text-[9px] text-zinc-500">{option.hint}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {isJev && (
+            <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/10 space-y-2">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-3 h-3 text-purple-400" />
+                <label className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">TypeSafe API Key (router.jevKey)</label>
+              </div>
+              <input
+                type="password"
+                value={config.router.jevKey}
+                onChange={(e) => setConfig(prev => ({ ...prev, router: { ...prev.router, jevKey: e.target.value } }))}
+                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
+                placeholder="Leave blank to use the TYPESAFE_API_KEY env var"
+              />
+              <p className="text-[9px] text-zinc-500">
+                Prompts are sent to api.typesafe.ai for routing. Jev picks the category; the first model in that category answers.
+                If Jev fails, the router model below is used as a fallback (when set).
+              </p>
+            </div>
+          )}
+
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Router Provider</label>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{isJev ? 'Fallback Router Provider' : 'Router Provider'}</label>
               <div className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-zinc-400">
                 OpenAI Compatible (Local/Cloud)
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Router Model</label>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{isJev ? 'Fallback Router Model' : 'Router Model'}</label>
               <input
                 type="text"
                 value={config.router.model}
                 onChange={(e) => setConfig(prev => ({ ...prev, router: { ...prev.router, model: e.target.value } }))}
                 className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-xs font-mono text-emerald-500 focus:border-emerald-500/50 outline-none transition-all"
-                placeholder="e.g. gemma3:4b or gemini-2.0-flash-lite"
+                placeholder="e.g. gemma3:4b or qwen3:4b"
               />
             </div>
           </div>
@@ -89,12 +140,7 @@ export default function RouterConfig({ config, setConfig, saveStatus, saveError,
               <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/10 space-y-2">
                 <div className="text-[9px] font-bold text-purple-400 uppercase tracking-widest">OpenRouter Quick Select</div>
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    { label: 'Gemini Flash 1.5', id: 'google/gemini-flash-1.5' },
-                    { label: 'Mistral 7B', id: 'mistralai/mistral-7b-instruct' },
-                    { label: 'Claude 3 Haiku', id: 'anthropic/claude-3-haiku' },
-                    { label: 'Minimax 2.5', id: 'minimax/minimax-01' }
-                  ].map(m => (
+                  {OPENROUTER_QUICK_SELECT.map(m => (
                     <button
                       key={m.id}
                       onClick={() => setConfig(prev => ({ ...prev, router: { ...prev.router, model: m.id } }))}

@@ -55,19 +55,17 @@ export function useConfig(deps: UseConfigDeps) {
 
   const addCategory = useCallback(() => {
     if (!newCategoryName.trim()) return;
-    const updated = { ...config };
-    updated.categories[newCategoryName.trim().toUpperCase()] = {
-      models: [],
-      provider: 'local'
+    const updated: NexusConfig = {
+      ...config,
+      categories: { ...config.categories, [newCategoryName.trim().toUpperCase()]: { models: [], provider: 'local' } },
     };
     saveConfig(updated);
     setNewCategoryName('');
   }, [newCategoryName, config, saveConfig]);
 
   const removeCategory = useCallback((cat: string) => {
-    const updated = { ...config };
-    delete updated.categories[cat];
-    saveConfig(updated);
+    const { [cat]: _removed, ...categories } = config.categories;
+    saveConfig({ ...config, categories });
   }, [config, saveConfig]);
 
   return {

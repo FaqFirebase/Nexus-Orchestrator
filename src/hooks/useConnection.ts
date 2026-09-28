@@ -67,9 +67,9 @@ export function useConnection(deps: UseConnectionDeps) {
               ...DEFAULT_CONFIG.router,
               ...(configData.router || {})
             },
+            // Server categories are authoritative: merging defaults back in would resurrect deleted ones
             categories: {
-              ...DEFAULT_CONFIG.categories,
-              ...(configData.categories || {})
+              ...(configData.categories || DEFAULT_CONFIG.categories)
             }
           });
         }

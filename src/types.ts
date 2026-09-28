@@ -1,5 +1,8 @@
 export type ModelCategory = string;
 
+/** 'llm' = OpenAI-compatible router model; 'jev' = TypeSafe Jev (cloud, opt-in). */
+export type RouterEngine = 'llm' | 'jev';
+
 export interface LocalProvider {
   name: string;
   url: string;
@@ -112,6 +115,8 @@ export interface NexusConfig {
     model: string;
     url: string;
     key: string;
+    engine: RouterEngine;
+    jevKey: string;
   };
   categories: Record<ModelCategory, { models: CategoryModel[]; provider: 'local' | 'cloud' }>;
   routerCacheEnabled?: boolean;

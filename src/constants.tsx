@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import type { NexusConfig } from './types';
 
-declare const __APP_VERSION__: string;
 export const VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
 export const CATEGORY_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {
@@ -45,7 +44,9 @@ export const DEFAULT_CONFIG: NexusConfig = {
     provider: 'openai' as 'openai',
     model: '',
     url: '',
-    key: ''
+    key: '',
+    engine: 'llm',
+    jevKey: '',
   },
   searxng: {
     url: '',
